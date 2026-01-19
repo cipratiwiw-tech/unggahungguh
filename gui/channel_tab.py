@@ -10,8 +10,14 @@ from PySide6.QtCore import Qt, QDateTime, Signal, QMimeData
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from core.workers import UploadWorker
 
-# --- Custom Widget untuk Thumbnail (Click & Drop) ---
+# =========================================================================
+# 1. CUSTOM WIDGETS
+# =========================================================================
+
 class ThumbnailWidget(QPushButton):
+    """
+    Tombol Thumbnail yang HANYA menerima drop file GAMBAR.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setText("📷 Drop / Click")
@@ -33,17 +39,25 @@ class ThumbnailWidget(QPushButton):
             self.set_image(path)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
+        # HANYA terima jika ada URL
         if event.mimeData().hasUrls():
-            event.accept()
+            # Cek ekstensi file pertama, jika gambar terima, jika video tolak (biar tembus ke tabel)
+            url = event.mimeData().urls()[0]
+            fname = url.toLocalFile()
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                event.accept()
+            else:
+                event.ignore()
         else:
             event.ignore()
 
     def dropEvent(self, event: QDropEvent):
         files = [u.toLocalFile() for u in event.mimeData().urls()]
         for f in files:
-            if f.lower().endswith(('.jpg', '.png', '.jpeg')):
+            if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                 self.set_image(f)
-                break
+                break # Ambil satu gambar saja
 
     def set_image(self, path):
         self.image_path = path
@@ -51,8 +65,59 @@ class ThumbnailWidget(QPushButton):
         self.setText(f"🖼️ {filename}")
         self.setStyleSheet("background: #313244; color: #a6e3a1; border: 2px solid #a6e3a1;")
 
-# --- Custom Widget untuk Status & Progress ---
+
+class VideoDropTable(QTableWidget):
+    """
+    Tabel khusus yang menangani Drop Video.
+    Mengirim sinyal 'videos_dropped' saat user menjatuhkan file video.
+    """
+    videos_dropped = Signal(list) # Mengirim list file paths
+
+    def __init__(self, rows, cols):
+        super().__init__(rows, cols)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DropOnly)
+        # Style standard tabel
+        self.verticalHeader().setDefaultSectionSize(90)
+        self.setStyleSheet("""
+            QTableWidget {
+                background-color: #11111b; border: none; gridline-color: #313244;
+            }
+            QHeaderView::section {
+                background-color: #181825; color: #bac2de; padding: 8px; 
+                border: none; font-weight: bold; text-transform: uppercase;
+            }
+        """)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent):
+        video_files = []
+        files = [u.toLocalFile() for u in event.mimeData().urls()]
+        
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in ['.mp4', '.mov', '.mkv', '.avi', '.flv']:
+                video_files.append(f)
+        
+        if video_files:
+            self.videos_dropped.emit(video_files)
+
+
 class StatusWidget(QWidget):
+    """
+    Widget gabungan Label Status dan Progress Bar.
+    """
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
@@ -79,6 +144,10 @@ class StatusWidget(QWidget):
         self.pbar.setValue(val)
 
 
+# =========================================================================
+# 2. MAIN CHANNEL TAB
+# =========================================================================
+
 class ChannelTab(QWidget):
     def __init__(self, channel_name):
         super().__init__()
@@ -95,7 +164,7 @@ class ChannelTab(QWidget):
         # 1. HEADER (Fixed)
         self.setup_header(layout)
 
-        # 2. TABLE (Video Input)
+        # 2. TABLE (Video Input dengan Drag & Drop)
         self.setup_table(layout)
 
         # 3. FOOTER (Control)
@@ -132,20 +201,17 @@ class ChannelTab(QWidget):
         parent_layout.addWidget(header)
 
     def setup_table(self, parent_layout):
-        # 7 Kolom Total: 0=Thumb, 1=Title, 2=Desc, 3=Tags, 4=Schedule, 5=Status, 6=HiddenPath
-        self.table = QTableWidget(0, 7)
+        # Gunakan class VideoDropTable yang baru kita buat
+        self.table = VideoDropTable(0, 7)
         self.table.setHorizontalHeaderLabels([
             "THUMBNAIL", "TITLE (EDIT)", "DESCRIPTION (EDIT)", 
             "TAGS (EDIT)", "SCHEDULE (REQUIRED)", "STATUS", ""
         ])
         
-        # Konfigurasi Drag & Drop Table (Untuk file video)
-        self.table.setAcceptDrops(True)
-        self.table.dragEnterEvent = self.dragEnterEvent
-        self.table.dropEvent = self.dropEvent
-        self.table.setSelectionMode(QAbstractItemView.NoSelection) # Fokus ke widget
+        # Sambungkan sinyal drop
+        self.table.videos_dropped.connect(self.handle_videos_dropped)
         
-        # Ukuran Kolom
+        # Konfigurasi Kolom
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch) # Title stretch
         header.setSectionResizeMode(2, QHeaderView.Stretch) # Desc stretch
@@ -156,20 +222,6 @@ class ChannelTab(QWidget):
         self.table.setColumnWidth(5, 120) # Status
         self.table.setColumnHidden(6, True) # Path Video Hidden
 
-        # Baris agak tinggi untuk Desc & Thumb
-        self.table.verticalHeader().setDefaultSectionSize(90)
-        
-        # Style
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #11111b; border: none; gridline-color: #313244;
-            }
-            QHeaderView::section {
-                background-color: #181825; color: #bac2de; padding: 8px; 
-                border: none; font-weight: bold; text-transform: uppercase;
-            }
-        """)
-        
         parent_layout.addWidget(self.table)
 
     def setup_footer(self, parent_layout):
@@ -196,20 +248,12 @@ class ChannelTab(QWidget):
         
         parent_layout.addWidget(footer)
 
-    # === DRAG & DROP LOGIC (VIDEO FILES) ===
+    # === LOGIC: HANDLE DROPPED VIDEOS ===
 
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.accept()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event):
-        files = [u.toLocalFile() for u in event.mimeData().urls()]
-        for f in files:
-            ext = os.path.splitext(f)[1].lower()
-            if ext in ['.mp4', '.mov', '.mkv', '.avi']:
-                self.add_video_row(f)
+    def handle_videos_dropped(self, file_paths):
+        """Menerima list path video dari VideoDropTable"""
+        for f in file_paths:
+            self.add_video_row(f)
 
     def add_video_row(self, filepath):
         row = self.table.rowCount()
@@ -220,32 +264,31 @@ class ChannelTab(QWidget):
 
         # 0. Thumbnail (Custom Widget)
         thumb_widget = ThumbnailWidget()
-        # Auto-detect logic placeholder (jika ada file jpg bernama sama)
+        # Auto-detect jika ada jpg dengan nama sama
         possible_thumb = filepath.replace(os.path.splitext(filepath)[1], ".jpg")
         if os.path.exists(possible_thumb):
             thumb_widget.set_image(possible_thumb)
         self.table.setCellWidget(row, 0, thumb_widget)
 
-        # 1. Title (LineEdit)
+        # 1. Title
         inp_title = QLineEdit(clean_name)
         inp_title.setPlaceholderText("Judul Video")
         inp_title.setStyleSheet("background: transparent; border: none; color: white; font-weight: bold; font-size: 13px;")
         self.table.setCellWidget(row, 1, inp_title)
 
-        # 2. Description (TextEdit)
+        # 2. Description
         inp_desc = QTextEdit()
         inp_desc.setPlaceholderText("Tulis deskripsi...")
         inp_desc.setStyleSheet("background: transparent; border: 1px solid #313244; color: #a6adc8; font-size: 12px;")
         self.table.setCellWidget(row, 2, inp_desc)
 
-        # 3. Tags (LineEdit)
+        # 3. Tags
         inp_tags = QLineEdit()
         inp_tags.setPlaceholderText("tag1, tag2")
         inp_tags.setStyleSheet("background: #1e1e2e; border: 1px solid #313244; color: #bac2de; border-radius: 4px;")
         self.table.setCellWidget(row, 3, inp_tags)
 
-        # 4. Schedule (DateTimeEdit) - WAJIB
-        # Default: Sekarang + 10 menit
+        # 4. Schedule
         default_time = QDateTime.currentDateTime().addSecs(600)
         inp_sched = QDateTimeEdit(default_time)
         inp_sched.setDisplayFormat("dd/MM/yyyy HH:mm")
@@ -256,23 +299,21 @@ class ChannelTab(QWidget):
         """)
         self.table.setCellWidget(row, 4, inp_sched)
 
-        # 5. Status (Custom Label + Progress)
+        # 5. Status
         status_widget = StatusWidget()
         self.table.setCellWidget(row, 5, status_widget)
 
         # 6. Hidden Path
         self.table.setItem(row, 6, QTableWidgetItem(filepath))
 
-    # === UPLOAD PROCESS ===
+    # === LOGIC: UPLOAD PROCESS ===
 
     def start_upload_sequence(self):
         if self.is_processing: return
         
-        # Scan baris yang READY
         self.upload_queue = []
         for r in range(self.table.rowCount()):
             stat_widget = self.table.cellWidget(r, 5)
-            # Cek text pada label dalam status widget
             if stat_widget.lbl_status.text() == "READY":
                 self.upload_queue.append(r)
         
@@ -290,39 +331,29 @@ class ChannelTab(QWidget):
         row = self.upload_queue.pop(0)
         self.current_processing_row = row
         
-        # === AMBIL DATA (Sesuai Spec) ===
-        # 1. Video Path
+        # Ambil Data
         video_path = self.table.item(row, 6).text()
-        
-        # 2. Metadata (Direct from widgets)
         title = self.table.cellWidget(row, 1).text()
         desc = self.table.cellWidget(row, 2).toPlainText()
         tags = self.table.cellWidget(row, 3).text().split(",")
+        thumb_path = self.table.cellWidget(row, 0).image_path
         
-        # 3. Schedule (ISO 8601 UTC)
         qdt = self.table.cellWidget(row, 4).dateTime()
-        publish_at = qdt.toUTC().toString(Qt.ISODate) # YYYY-MM-DDTHH:MM:SSZ
+        publish_at = qdt.toUTC().toString(Qt.ISODate)
         
-        # 4. Thumbnail
-        thumb_widget = self.table.cellWidget(row, 0)
-        thumb_path = thumb_widget.image_path
-
-        # Construct Data Packet
         data = {
             "video_path": video_path,
             "title": title,
             "description": desc,
             "tags": [t.strip() for t in tags if t.strip()],
-            "privacyStatus": "unlisted", # HARDCODED WAJIB
-            "publishAt": publish_at,     # HARDCODED WAJIB
+            "privacyStatus": "unlisted",
+            "publishAt": publish_at,
             "thumbnail": thumb_path
         }
 
-        # Update Visual
         stat_widget = self.table.cellWidget(row, 5)
         stat_widget.set_status("UPLOADING", "#f9e2af")
         
-        # Start Worker
         self.worker = UploadWorker(data)
         self.worker.progress_signal.connect(stat_widget.set_progress)
         self.worker.finished_signal.connect(self.on_upload_finished)
@@ -337,7 +368,6 @@ class ChannelTab(QWidget):
             stat_widget.set_progress(100)
         else:
             stat_widget.set_status("ERROR", "#f38ba8")
-            print(f"Upload Error: {msg}") # Debug log
+            print(msg)
 
-        # Lanjut queue
         self.process_next()
