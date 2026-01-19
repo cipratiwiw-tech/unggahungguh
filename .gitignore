@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+projects/
+
+*.pyc
+
+# OAuth & Secrets
+client_secret.json
+token.json
+
+# Upload assets
+project_A/uploads/*
+project_A/thumbnails/*
