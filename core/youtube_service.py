@@ -1,6 +1,6 @@
 from googleapiclient.discovery import build
 
-def get_youtube_service(creds):
+def get_service(creds):
     return build(
         "youtube",
         "v3",

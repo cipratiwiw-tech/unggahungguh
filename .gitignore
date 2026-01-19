@@ -1,7 +1,7 @@
 # Python
 .venv/
 __pycache__/
-projects/
+channels/
 
 *.pyc
 
