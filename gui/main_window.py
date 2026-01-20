@@ -2,10 +2,12 @@ import os
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QTabWidget, 
     QPushButton, QHBoxLayout, QLabel, QInputDialog, 
-    QFileDialog, QMessageBox, QMenu
+    QFileDialog, QMessageBox, QMenu, QStackedWidget
 )
 from PySide6.QtCore import Qt
 from gui.channel_tab import ChannelTab
+from gui.sidebar import Sidebar
+from gui.dashboard import Dashboard
 from utils import (
     get_existing_channels, create_new_channel, 
     rename_channel_folder, delete_channel_folder
@@ -17,11 +19,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("UnggahUngguh – Persistent Channel Manager")
         self.resize(1366, 800)
 
-        # Style Global
+        # --- GLOBAL STYLE ---
         self.setStyleSheet("""
             QMainWindow, QWidget {
                 background-color: #11111b; color: #cdd6f4; font-family: 'Segoe UI'; font-size: 13px;
             }
+            /* Styling untuk QTabWidget di dalam Channel View */
             QTabWidget::pane { border: 1px solid #313244; }
             QTabBar::tab {
                 background: #181825; color: #a6adc8; padding: 10px 20px;
@@ -41,47 +44,122 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        # --- TOP BAR ---
+        # --- MAIN CONTAINER (Horizontal: Sidebar | Content) ---
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # 1. SIDEBAR (Kiri)
+        self.sidebar = Sidebar()
+        self.sidebar.action_triggered.connect(self.switch_view)
+        main_layout.addWidget(self.sidebar)
+
+        # 2. CONTENT AREA (Kanan)
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        main_layout.addWidget(content_widget)
+
+        # --- TOP BAR (Tetap ada di atas Content Area) ---
         top_bar = QWidget()
-        top_bar.setFixedHeight(50)
-        top_bar.setStyleSheet("background-color: #181825; border-bottom: 1px solid #313244;")
+        top_bar.setFixedHeight(60)
+        top_bar.setStyleSheet("background-color: #181825; border-bottom: 1px solid #313244; padding: 0 20px;")
         tb_layout = QHBoxLayout(top_bar)
+        tb_layout.setContentsMargins(0, 0, 0, 0)
         
-        lbl_title = QLabel("UNGGAH // UNGGUH")
-        lbl_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #89b4fa; letter-spacing: 2px;")
+        # Judul Halaman Dinamis
+        self.lbl_page_title = QLabel("DASHBOARD")
+        self.lbl_page_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cdd6f4;")
         
-        btn_add = QPushButton(" + NEW CHANNEL ")
-        btn_add.setCursor(Qt.PointingHandCursor)
-        btn_add.setStyleSheet("""
+        # Tombol New Channel (Hanya muncul jika di view Channels)
+        self.btn_add_channel = QPushButton(" + NEW CHANNEL ")
+        self.btn_add_channel.setCursor(Qt.PointingHandCursor)
+        self.btn_add_channel.setStyleSheet("""
             QPushButton {
                 background: #313244; color: white; border: 1px solid #45475a;
                 border-radius: 4px; padding: 6px 15px; font-weight: bold;
             }
             QPushButton:hover { background: #45475a; }
         """)
-        btn_add.clicked.connect(self.add_new_channel_flow)
+        self.btn_add_channel.clicked.connect(self.add_new_channel_flow)
+        self.btn_add_channel.hide() # Default hide, show logic di switch_view
         
-        tb_layout.addWidget(lbl_title)
+        tb_layout.addWidget(self.lbl_page_title)
         tb_layout.addStretch()
-        tb_layout.addWidget(btn_add)
-        layout.addWidget(top_bar)
-
-        # --- TAB AREA ---
-        self.tabs = QTabWidget()
-        self.tabs.setTabsClosable(False) 
+        tb_layout.addWidget(self.btn_add_channel)
         
-        # Enable Context Menu
+        content_layout.addWidget(top_bar)
+
+        # --- STACKED WIDGET (Halaman yang berubah-ubah) ---
+        self.stack = QStackedWidget()
+        content_layout.addWidget(self.stack)
+
+        # [PAGE 0] Dashboard
+        self.page_dashboard = Dashboard()
+        self.stack.addWidget(self.page_dashboard)
+
+        # [PAGE 1] Channel List (QTabWidget yang lama)
+        self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(False)
         self.tabs.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
-        
-        layout.addWidget(self.tabs)
+        self.stack.addWidget(self.tabs)
 
+        # [PAGE 2] Asset Library (Placeholder)
+        self.page_assets = QLabel("📦 ASSET LIBRARY\n\n(Coming Soon: Templates, Presets, Thumbnails)")
+        self.page_assets.setAlignment(Qt.AlignCenter)
+        self.page_assets.setStyleSheet("font-size: 18px; color: #6c7086;")
+        self.stack.addWidget(self.page_assets)
+
+        # [PAGE 3] Global Queue (Placeholder)
+        self.page_queue = QLabel("🌐 GLOBAL QUEUE\n\n(Coming Soon: Monitor all uploads here)")
+        self.page_queue.setAlignment(Qt.AlignCenter)
+        self.page_queue.setStyleSheet("font-size: 18px; color: #6c7086;")
+        self.stack.addWidget(self.page_queue)
+
+        # Load data awal
         self.load_persisted_channels()
+        
+        # Set default view
+        self.switch_view("dashboard")
+
+    # =========================================================
+    # NAVIGATION LOGIC
+    # =========================================================
+    
+    def switch_view(self, view_uid):
+        """Mengganti halaman berdasarkan ID dari Sidebar"""
+        title_map = {
+            "dashboard": "DASHBOARD OVERVIEW",
+            "channels_list": "CHANNEL WORKSPACE",
+            "assets": "ASSET LIBRARY",
+            "global_queue": "UPLOAD QUEUE"
+        }
+        
+        self.lbl_page_title.setText(title_map.get(view_uid, "APP"))
+
+        if view_uid == "dashboard":
+            self.stack.setCurrentIndex(0)
+            self.btn_add_channel.hide()
+            
+        elif view_uid == "channels_list":
+            self.stack.setCurrentIndex(1)
+            self.btn_add_channel.show()
+            
+        elif view_uid == "assets":
+            self.stack.setCurrentIndex(2)
+            self.btn_add_channel.hide()
+            
+        elif view_uid == "global_queue":
+            self.stack.setCurrentIndex(3)
+            self.btn_add_channel.hide()
+
+    # =========================================================
+    # CHANNEL LOGIC (WARISAN KODE LAMA)
+    # =========================================================
 
     def load_persisted_channels(self):
         existing_channels = get_existing_channels()
@@ -110,14 +188,11 @@ class MainWindow(QMainWindow):
         try:
             create_new_channel(safe_name, secret_path)
             self.create_tab(safe_name)
+            # Pindah ke tab baru
             self.tabs.setCurrentIndex(self.tabs.count() - 1)
             QMessageBox.information(self, "Success", f"Channel '{safe_name}' created successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to create channel: {str(e)}")
-
-    # =========================================================
-    # CONTEXT MENU LOGIC (RENAME & DELETE)
-    # =========================================================
 
     def show_tab_context_menu(self, point):
         index = self.tabs.tabBar().tabAt(point)
@@ -125,7 +200,6 @@ class MainWindow(QMainWindow):
             return 
 
         menu = QMenu(self)
-        
         action_rename = menu.addAction("Rename Channel")
         action_rename.triggered.connect(lambda: self.rename_channel(index))
         
@@ -136,65 +210,40 @@ class MainWindow(QMainWindow):
         menu.exec(self.tabs.mapToGlobal(point))
 
     def rename_channel(self, index):
-        # 1. Ambil nama lama dari Tab Header (Sumber Kebenaran)
         current_name = self.tabs.tabText(index)
-        
-        # 2. Minta input nama baru
         new_name, ok = QInputDialog.getText(self, "Rename Channel", "New Channel Name:", text=current_name)
         
         if ok and new_name.strip():
             safe_new_name = "".join([c for c in new_name if c.isalnum() or c in (' ', '_', '-')]).strip()
-            
-            # Jangan lakukan apa-apa jika nama sama
-            if safe_new_name == current_name:
-                return
+            if safe_new_name == current_name: return
 
             try:
-                # 3. Rename folder di disk (CRITICAL)
                 rename_channel_folder(current_name, safe_new_name)
-                
-                # 4. Update UI Tab Header (CRITICAL)
                 self.tabs.setTabText(index, safe_new_name)
                 
-                # 5. Update Internal State Widget (Agar AuthManager tahu path baru)
+                # Update Internal Tab State
                 tab_widget = self.tabs.widget(index)
                 if isinstance(tab_widget, ChannelTab):
-                    # Kita panggil method khusus untuk update identitas
-                    if hasattr(tab_widget, 'update_channel_identity'):
-                        tab_widget.update_channel_identity(safe_new_name)
-                    else:
-                        # Fallback jika method belum ada (safety)
-                        tab_widget.channel_name = safe_new_name
+                    tab_widget.update_channel_identity(safe_new_name)
 
             except Exception as e:
                 QMessageBox.critical(self, "Rename Failed", str(e))
 
     def delete_channel(self, index):
         channel_name = self.tabs.tabText(index)
-        
-        # --- PERBAIKAN DI SINI (CUSTOM BUTTON) ---
         msg = QMessageBox(self)
         msg.setWindowTitle("Delete Channel")
         msg.setIcon(QMessageBox.Warning)
         msg.setText(f"Are you sure you want to delete '{channel_name}'?")
-        msg.setInformativeText(
-            "This will permanently remove the channel folder, OAuth tokens, and configuration.\n\n"
-            "This action cannot be undone."
-        )
+        msg.setInformativeText("This will permanently remove the channel folder and tokens.")
         
-        # Tambahkan Tombol Custom "Delete" dengan Peran Destruktif
         btn_delete = msg.addButton("Delete", QMessageBox.DestructiveRole)
-        btn_cancel = msg.addButton(QMessageBox.Cancel)
-        
-        # Set Default ke Cancel (Safety)
-        msg.setDefaultButton(btn_cancel)
-        
-        # Styling Tombol Delete agar terlihat berbahaya (Merah)
+        msg.addButton(QMessageBox.Cancel)
+        msg.setDefaultButton(QMessageBox.Cancel)
         msg.setStyleSheet("QPushButton[text='Delete'] { color: #f38ba8; font-weight: bold; }")
 
         msg.exec()
         
-        # Cek tombol mana yang diklik
         if msg.clickedButton() == btn_delete:
             try:
                 delete_channel_folder(channel_name)
