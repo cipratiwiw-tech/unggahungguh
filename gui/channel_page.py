@@ -1,11 +1,12 @@
 import os
+import random # Import random
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton, 
     QScrollArea, QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
     QSizePolicy
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor  # <--- WAJIB DI-IMPORT
+from PySide6.QtGui import QColor
 from gui.custom_widgets import AutoResizingTextEdit, ScheduleWidget
 from core.auth_manager import AuthManager
 
@@ -40,10 +41,12 @@ class StatCard(QFrame):
 
 class RecentVideosTable(QTableWidget):
     """Tabel Riwayat Video untuk Seksi 2"""
-    def __init__(self):
+    def __init__(self, channel_seed):
         super().__init__(0, 4)
+        self.channel_seed = channel_seed # Seed unik per channel
+        
         self.setHorizontalHeaderLabels(["JUDUL VIDEO", "TANGGAL", "VIEWS", "STATUS"])
-        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch) # Judul Stretch
+        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
         self.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
@@ -78,10 +81,29 @@ class RecentVideosTable(QTableWidget):
             }
         """)
         
-        # Mock Data
-        self.add_mock_row("Review GTA 6 Leaks - Benarkah Rilis 2026?", "2 Hari lalu", "12.5K", "Aktif", "#2ba640")
-        self.add_mock_row("Rakit PC 5 Jutaan Lancar Valorant", "5 Hari lalu", "8.2K", "Aktif", "#2ba640")
-        self.add_mock_row("Vlog: Setup Studio Baru!", "1 Minggu lalu", "3.1K", "Review", "#ffaa00")
+        self.generate_mock_data()
+
+    def generate_mock_data(self):
+        # Gunakan seed agar data konsisten untuk channel yg sama
+        rng = random.Random(self.channel_seed)
+        
+        topics = [
+            "Gameplay Walkthrough Part", "Review Gadget", "Tutorial Python", 
+            "Vlog Liburan", "Resep Masakan", "Berita Tech Terkini", 
+            "Setup Meja Kerja", "Unboxing Paket Misterius"
+        ]
+        
+        statuses = [("Aktif", "#2ba640"), ("Review", "#ffaa00"), ("Copyright", "#cc0000")]
+        
+        # Generate 3-5 baris acak
+        num_rows = rng.randint(3, 6)
+        for i in range(num_rows):
+            title = f"{rng.choice(topics)} #{rng.randint(1, 100)}"
+            date = f"{rng.randint(1, 30)} Hari lalu"
+            views = f"{rng.randint(1, 900)}.{rng.randint(1, 9)}K"
+            status, color = rng.choice(statuses)
+            
+            self.add_mock_row(title, date, views, status, color)
 
     def add_mock_row(self, title, date, views, status, status_color):
         row = self.rowCount()
@@ -91,12 +113,7 @@ class RecentVideosTable(QTableWidget):
         self.setItem(row, 2, QTableWidgetItem(views))
         
         item_status = QTableWidgetItem(status)
-        
-        # --- PERBAIKAN DI SINI ---
-        # 1. Gunakan QColor yang sudah di-import
-        # 2. Set warna langsung ke object item sebelum dimasukkan ke table
         item_status.setForeground(QColor(status_color))
-        
         self.setItem(row, 3, item_status)
 
 # =============================================================================
@@ -109,7 +126,6 @@ class UploadRow(QFrame):
     """
     def __init__(self):
         super().__init__()
-        # Style Baris
         self.setStyleSheet("""
             UploadRow {
                 background-color: #2f2f2f;
@@ -120,26 +136,24 @@ class UploadRow(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        # Penting: Alignment Top agar jika satu cell membesar, cell lain tetap mulai dari atas
         layout.setAlignment(Qt.AlignTop) 
 
         # --- Helper Cell Builder ---
         def create_cell(widget, width=0, stretch=0, last=False):
             cell = QFrame()
-            # Style Cell: Border Kanan
             border = "border-right: 1px solid #2a2a2a;" if not last else "border: none;"
             cell.setStyleSheet(f"QFrame {{ background: transparent; {border} }}")
             
             c_layout = QVBoxLayout(cell)
             c_layout.setContentsMargins(0, 0, 0, 0)
-            c_layout.setAlignment(Qt.AlignTop) # Widget menempel di atas cell
+            c_layout.setAlignment(Qt.AlignTop) 
             c_layout.addWidget(widget)
             
             if width > 0: cell.setFixedWidth(width)
             layout.addWidget(cell, stretch)
             return cell
 
-        # 1. THUMBNAIL (Kolom 1)
+        # 1. THUMBNAIL
         self.btn_thumb = QPushButton("Upload\nImage")
         self.btn_thumb.setFixedSize(70, 50)
         self.btn_thumb.setCursor(Qt.PointingHandCursor)
@@ -151,31 +165,29 @@ class UploadRow(QFrame):
         """)
         self.btn_thumb.clicked.connect(self.select_thumb)
         
-        # Container thumb agar center secara horizontal tapi top secara vertikal
         thumb_wrapper = QFrame()
         tw_layout = QVBoxLayout(thumb_wrapper)
-        tw_layout.setContentsMargins(0, 10, 0, 0) # Padding top dikit
+        tw_layout.setContentsMargins(0, 10, 0, 0)
         tw_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
         tw_layout.addWidget(self.btn_thumb)
-        
         create_cell(thumb_wrapper, width=90)
 
-        # 2. JUDUL (Kolom 2)
+        # 2. JUDUL
         self.inp_title = AutoResizingTextEdit("Judul video...")
         self.inp_title.heightChanged.connect(self.propagate_resize)
         create_cell(self.inp_title, stretch=2)
 
-        # 3. DESKRIPSI (Kolom 3)
+        # 3. DESKRIPSI
         self.inp_desc = AutoResizingTextEdit("Deskripsi lengkap...")
         self.inp_desc.heightChanged.connect(self.propagate_resize)
         create_cell(self.inp_desc, stretch=3)
 
-        # 4. TAGS (Kolom 4)
+        # 4. TAGS
         self.inp_tags = AutoResizingTextEdit("tag1, tag2, tag3...")
         self.inp_tags.heightChanged.connect(self.propagate_resize)
         create_cell(self.inp_tags, stretch=2)
 
-        # 5. JADWAL (Kolom 5)
+        # 5. JADWAL
         self.schedule = ScheduleWidget()
         create_cell(self.schedule, width=140, last=True)
 
@@ -183,18 +195,10 @@ class UploadRow(QFrame):
         path, _ = QFileDialog.getOpenFileName(self, "Pilih Thumbnail", "", "Images (*.jpg *.png)")
         if path:
             self.btn_thumb.setText("✔")
-            self.btn_thumb.setStyleSheet("""
-                QPushButton { 
-                    border: none; background: #2ba640; color: white; 
-                    font-size: 18px; font-weight: bold; border-radius: 4px;
-                }
-            """)
+            self.btn_thumb.setStyleSheet("border: none; background: #2ba640; color: white; font-size: 18px; font-weight: bold; border-radius: 4px;")
 
     def propagate_resize(self):
-        # Memaksa layout menghitung ulang ukuran saat text edit membesar
         self.updateGeometry()
-        if self.parent():
-            pass
 
 # =============================================================================
 # HALAMAN UTAMA CHANNEL
@@ -205,7 +209,9 @@ class ChannelPage(QWidget):
         super().__init__()
         self.channel_name = channel_name
         
-        # Main Layout (Scrollable Page jika konten sangat panjang)
+        # Init Random Generator berdasarkan nama channel agar konsisten
+        self.rng = random.Random(channel_name)
+        
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(20, 20, 20, 20)
         self.layout.setSpacing(25)
@@ -219,18 +225,27 @@ class ChannelPage(QWidget):
         # --- SEKSI 3: UPLOAD QUEUE ---
         self.create_upload_section()
 
-        # Check Auth di awal
+        self.check_auth_status()
+
+    def update_channel_identity(self, new_name):
+        """Dipanggil jika channel direname dari Sidebar"""
+        self.channel_name = new_name
+        # Note: Kita tidak me-refresh mock data agar user tidak kaget,
+        # tapi logic auth akan menyesuaikan path folder baru.
         self.check_auth_status()
 
     def create_stats_section(self):
-        # Container Stats
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(15)
         
-        # Mock Data Stats
-        stats_layout.addWidget(StatCard("TOTAL SUBSCRIBER", "1.25M", "#cc0000"))
-        stats_layout.addWidget(StatCard("TOTAL VIEWS (28 Hari)", "4.8M", "#2ba640"))
-        stats_layout.addWidget(StatCard("ESTIMASI PENDAPATAN", "IDR 125jt", "#ffaa00"))
+        # Generate Angka Acak Unik per Channel
+        subs = f"{self.rng.randint(1, 999)}.{self.rng.randint(1,9)}K"
+        views = f"{self.rng.randint(1, 50)}.{self.rng.randint(1,9)}M"
+        revenue = f"IDR {self.rng.randint(10, 500)}jt"
+        
+        stats_layout.addWidget(StatCard("TOTAL SUBSCRIBER", subs, "#cc0000"))
+        stats_layout.addWidget(StatCard("TOTAL VIEWS (28 Hari)", views, "#2ba640"))
+        stats_layout.addWidget(StatCard("ESTIMASI PENDAPATAN", revenue, "#ffaa00"))
         
         self.layout.addLayout(stats_layout)
 
@@ -244,8 +259,9 @@ class ChannelPage(QWidget):
         lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: white;")
         l.addWidget(lbl)
         
-        self.history_table = RecentVideosTable()
-        self.history_table.setFixedHeight(180) # Fixed height agar tidak memakan tempat
+        # Pass nama channel sebagai seed ke tabel
+        self.history_table = RecentVideosTable(self.channel_name)
+        self.history_table.setFixedHeight(180)
         l.addWidget(self.history_table)
         
         self.layout.addWidget(container)
@@ -256,7 +272,6 @@ class ChannelPage(QWidget):
         l.setContentsMargins(0,0,0,0)
         l.setSpacing(5)
 
-        # Header Title
         title_box = QWidget()
         tb_l = QVBoxLayout(title_box)
         tb_l.setContentsMargins(0,0,0,0)
@@ -271,7 +286,7 @@ class ChannelPage(QWidget):
         tb_l.addWidget(lbl_desc)
         l.addWidget(title_box)
 
-        # --- GRID CONTAINER (BORDER MERAH) ---
+        # --- GRID CONTAINER ---
         grid_frame = QFrame()
         grid_frame.setObjectName("GridFrame")
         grid_frame.setStyleSheet("""
@@ -285,7 +300,7 @@ class ChannelPage(QWidget):
         gf_layout.setContentsMargins(0, 0, 0, 0)
         gf_layout.setSpacing(0)
 
-        # A. HEADER GRID (Merah)
+        # A. HEADER GRID
         header_row = QFrame()
         header_row.setFixedHeight(35)
         header_row.setStyleSheet("background-color: #cc0000; border-top-left-radius: 4px; border-top-right-radius: 4px;")
@@ -300,16 +315,14 @@ class ChannelPage(QWidget):
         for i, txt in enumerate(cols):
             lbl = QLabel(txt)
             lbl.setAlignment(Qt.AlignCenter)
-            # Border putih transparan antar header
             border = "border-right: 1px solid rgba(255,255,255,0.3);" if i < len(cols)-1 else "border: none;"
             lbl.setStyleSheet(f"color: white; font-weight: bold; font-size: 11px; {border}")
-            
             if widths[i] > 0: lbl.setFixedWidth(widths[i])
             hr_layout.addWidget(lbl, stretch=stretches[i])
 
         gf_layout.addWidget(header_row)
 
-        # B. ISI GRID (SCROLL AREA)
+        # B. ISI GRID
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("background: #2f2f2f; border: none;")
@@ -322,7 +335,6 @@ class ChannelPage(QWidget):
         self.rows_layout.setContentsMargins(0,0,0,0)
         self.rows_layout.setAlignment(Qt.AlignTop)
 
-        # Generate 5 Baris
         self.upload_rows = []
         for _ in range(5):
             row = UploadRow()
@@ -350,14 +362,12 @@ class ChannelPage(QWidget):
         self.layout.addWidget(container)
 
     def check_auth_status(self):
-        # Placeholder untuk logika auth jika diperlukan refresh UI
         pass
 
     def simulate_upload(self):
         self.btn_action.setText("MEMPROSES...")
         self.btn_action.setEnabled(False)
         self.btn_action.setStyleSheet("background-color: #555; color: #aaa; border: none;")
-        
         QTimer.singleShot(2000, self.finish_simulation)
 
     def finish_simulation(self):
