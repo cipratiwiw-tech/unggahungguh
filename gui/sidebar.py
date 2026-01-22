@@ -1,12 +1,153 @@
-# gui/sidebar.py
+import sys
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem, 
-    QPushButton, QFrame, QMenu, QMessageBox, QInputDialog
+    QWidget, QVBoxLayout, QLabel, QPushButton, QFrame, QMenu, 
+    QMessageBox, QInputDialog, QScrollArea, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon, QFont, QColor, QBrush, QAction
+from PySide6.QtGui import QAction, QFont, QCursor
 from utils import rename_channel_folder, delete_channel_folder, delete_category_folder
 
+# =============================================================================
+# CUSTOM COMPONENT: CHANNEL BUTTON
+# =============================================================================
+class ChannelBtn(QPushButton):
+    """Custom Button representing a single Channel inside a Category."""
+    def __init__(self, text, category, sidebar):
+        super().__init__(text)
+        self.category = category
+        self.channel_name = text
+        self.sidebar = sidebar
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        
+        # Connect signals
+        self.clicked.connect(self.on_click)
+        self.customContextMenuRequested.connect(self.on_context_menu)
+        
+        # Initial Style
+        self.update_style(False)
+
+    def update_style(self, active):
+        if active:
+            self.setStyleSheet("""
+                QPushButton {
+                    text-align: left;
+                    padding: 8px 10px 8px 20px;
+                    background-color: rgba(204, 0, 0, 0.15);
+                    color: #ff5555;
+                    border: none;
+                    border-left: 3px solid #cc0000;
+                    font-weight: bold;
+                    border-radius: 0px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QPushButton {
+                    text-align: left;
+                    padding: 8px 10px 8px 20px;
+                    background-color: transparent;
+                    color: #aaaaaa;
+                    border: none;
+                    border-left: 3px solid transparent;
+                    border-radius: 0px;
+                }
+                QPushButton:hover {
+                    background-color: #2f2f2f;
+                    color: white;
+                }
+            """)
+
+    def set_active(self, active):
+        self.setChecked(active)
+        self.update_style(active)
+
+    def on_click(self):
+        self.sidebar.handle_channel_click(self)
+
+    def on_context_menu(self, pos):
+        self.sidebar.open_channel_context_menu(self, pos)
+
+
+# =============================================================================
+# CUSTOM COMPONENT: CATEGORY GROUP CONTAINER
+# =============================================================================
+class CategoryGroup(QFrame):
+    """
+    Visual Container for a Category.
+    Acts as a 'Card' wrapping the header and the list of channels.
+    """
+    def __init__(self, category_name, channels, sidebar):
+        super().__init__()
+        self.category_name = category_name
+        self.sidebar = sidebar
+        self.is_expanded = True
+        
+        # --- CONTAINER STYLE ---
+        # Separated visually from background with a lighter dark tone and border
+        self.setStyleSheet("""
+            CategoryGroup {
+                background-color: #1e1e1e;
+                border: 1px solid #333333;
+                border-radius: 8px;
+            }
+        """)
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+
+        # 1. HEADER (Category Name)
+        self.header = QPushButton(f"  {category_name.upper()}")
+        self.header.setCursor(Qt.PointingHandCursor)
+        self.header.setStyleSheet("""
+            QPushButton {
+                text-align: left;
+                background-color: #252525;
+                color: #dddddd;
+                font-weight: bold;
+                font-size: 11px;
+                letter-spacing: 1px;
+                padding: 12px;
+                border: none;
+                border-top-left-radius: 7px;
+                border-top-right-radius: 7px;
+                border-bottom: 1px solid #333;
+            }
+            QPushButton:hover { background-color: #2f2f2f; color: white; }
+        """)
+        self.header.clicked.connect(self.toggle_expand)
+        self.header.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.header.customContextMenuRequested.connect(self.on_context_menu)
+        
+        self.layout.addWidget(self.header)
+
+        # 2. CONTENT AREA (List of Channels)
+        self.content_area = QWidget()
+        self.content_layout = QVBoxLayout(self.content_area)
+        self.content_layout.setContentsMargins(0, 5, 0, 5)
+        self.content_layout.setSpacing(2)
+        
+        for chan_name in channels:
+            btn = ChannelBtn(chan_name, category_name, sidebar)
+            self.content_layout.addWidget(btn)
+            sidebar.register_channel_btn(btn)
+            
+        self.layout.addWidget(self.content_area)
+
+    def toggle_expand(self):
+        self.is_expanded = not self.is_expanded
+        self.content_area.setVisible(self.is_expanded)
+
+    def on_context_menu(self, pos):
+        self.sidebar.open_category_context_menu(self, pos)
+
+
+# =============================================================================
+# MAIN SIDEBAR CLASS
+# =============================================================================
 class Sidebar(QWidget):
     # Signals
     selection_changed = Signal(str, str) # mode, value
@@ -17,210 +158,200 @@ class Sidebar(QWidget):
     
     def __init__(self):
         super().__init__()
-        self.setFixedWidth(280)
-        self.setStyleSheet("""
-            QWidget { background-color: #181818; border-right: 1px solid #3f3f3f; }
-        """)
+        self.setFixedWidth(290)
+        self.setStyleSheet("background-color: #121212;") # Global Darker BG
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        # Main Layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # 1. Header
+        # 1. Header (Logo)
         header = QFrame()
         header.setFixedHeight(60)
-        header.setStyleSheet("border-bottom: 1px solid #3f3f3f; border-right: none;") 
+        header.setStyleSheet("border-bottom: 1px solid #2a2a2a; background: #181818;") 
         h_layout = QVBoxLayout(header)
         h_layout.setAlignment(Qt.AlignCenter | Qt.AlignLeft)
         lbl_logo = QLabel("▶ Studio Manager")
-        lbl_logo.setStyleSheet("font-size: 18px; font-weight: bold; color: white; padding-left: 10px; border: none;")
+        lbl_logo.setStyleSheet("font-size: 18px; font-weight: bold; color: white; padding-left: 15px; border: none;")
         h_layout.addWidget(lbl_logo)
-        layout.addWidget(header)
+        main_layout.addWidget(header)
 
-        # 2. Global Nav
+        # 2. Global Navigation (Dashboard)
         self.btn_dashboard = QPushButton("  Dashboard Portofolio")
         self.btn_dashboard.setFixedHeight(50)
         self.btn_dashboard.setCursor(Qt.PointingHandCursor)
         self.btn_dashboard.setStyleSheet("""
             QPushButton { 
-                text-align: left; background: transparent; border: none;
-                border-bottom: 1px solid #3f3f3f; font-size: 14px; padding-left: 20px; 
+                text-align: left; background: #181818; border: none;
+                border-bottom: 1px solid #2a2a2a; font-size: 14px; padding-left: 20px; color: #ddd;
             }
-            QPushButton:hover { background: #2f2f2f; }
+            QPushButton:hover { background: #2f2f2f; color: white; }
         """)
-        self.btn_dashboard.clicked.connect(lambda: self.on_item_click("global"))
-        layout.addWidget(self.btn_dashboard)
+        self.btn_dashboard.clicked.connect(lambda: self.on_global_click())
+        main_layout.addWidget(self.btn_dashboard)
 
-        # 3. Tree Widget (Accordion)
-        lbl_cat = QLabel("CHANNELS BY CATEGORY")
-        lbl_cat.setStyleSheet("color: #aaaaaa; font-size: 11px; font-weight: bold; padding: 15px 0 5px 20px; border: none;")
-        layout.addWidget(lbl_cat)
-
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setIndentation(20)
-        self.tree.setFocusPolicy(Qt.NoFocus)
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        
-        self.tree.setStyleSheet("""
-            QTreeWidget { background: transparent; border: none; font-size: 14px; }
-            QTreeWidget::item { padding: 8px; border-bottom: 1px solid transparent; }
-            QTreeWidget::item:hover { background: #2f2f2f; }
-            QTreeWidget::item:selected { background: rgba(204, 0, 0, 0.1); color: #cc0000; border-left: 3px solid #cc0000; }
+        # 3. Scroll Area for Categories
+        # This replaces the QTreeWidget to allow complex "Card" widgets
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("""
+            QScrollArea { border: none; background: #121212; }
+            QScrollBar:vertical { width: 6px; background: #121212; }
+            QScrollBar::handle:vertical { background: #333; border-radius: 3px; }
         """)
         
-        self.tree.itemClicked.connect(self.on_tree_click)
-        self.tree.customContextMenuRequested.connect(self.open_context_menu)
-        layout.addWidget(self.tree)
+        self.container = QWidget()
+        self.container.setStyleSheet("background: transparent;")
+        
+        # Layout for the stack of cards
+        self.container_layout = QVBoxLayout(self.container)
+        self.container_layout.setContentsMargins(15, 20, 15, 20)
+        self.container_layout.setSpacing(20) # 20px GAP BETWEEN CATEGORIES
+        self.container_layout.setAlignment(Qt.AlignTop)
+        
+        self.scroll.setWidget(self.container)
+        main_layout.addWidget(self.scroll)
 
         # 4. Footer Buttons
         footer = QFrame()
-        footer.setStyleSheet("border-top: 1px solid #3f3f3f; border-right: none;")
+        footer.setStyleSheet("background: #181818; border-top: 1px solid #2a2a2a;")
         f_layout = QVBoxLayout(footer)
-        f_layout.setSpacing(5)
+        f_layout.setContentsMargins(15, 15, 15, 15)
+        f_layout.setSpacing(10)
         
         btn_add_chan = QPushButton("+ Add Channel")
         btn_add_chan.setCursor(Qt.PointingHandCursor)
         btn_add_chan.setStyleSheet("""
-            QPushButton { background: #2f2f2f; border: 1px solid #3f3f3f; color: white; font-weight: bold;}
-            QPushButton:hover { background: #cc0000; border-color: #cc0000; }
+            QPushButton { background: #cc0000; border: none; color: white; font-weight: bold; border-radius: 4px; padding: 10px;}
+            QPushButton:hover { background: #e60000; }
         """)
         btn_add_chan.clicked.connect(self.add_channel_clicked.emit)
         
-        btn_add_cat = QPushButton("+ Add Category")
+        btn_add_cat = QPushButton("Create Category")
         btn_add_cat.setCursor(Qt.PointingHandCursor)
         btn_add_cat.setStyleSheet("""
-            QPushButton { background: transparent; border: 1px dashed #555; color: #777; font-size: 12px;}
+            QPushButton { background: transparent; border: 1px dashed #555; color: #777; border-radius: 4px; padding: 8px;}
             QPushButton:hover { border-color: #aaa; color: #aaa; }
         """)
         btn_add_cat.clicked.connect(self.add_category_clicked.emit)
 
         f_layout.addWidget(btn_add_chan)
         f_layout.addWidget(btn_add_cat)
-        layout.addWidget(footer)
+        main_layout.addWidget(footer)
+
+        # Internal State
+        self.channel_btns = []
+        self.current_btn = None
+
+    def register_channel_btn(self, btn):
+        """Called by ChannelBtn/CategoryGroup during creation"""
+        self.channel_btns.append(btn)
 
     def load_channels(self, structure):
-        self.tree.clear()
-        font_cat = QFont(); font_cat.setBold(True)
+        """Rebuilds the sidebar content based on directory structure"""
+        # Clear existing content
+        while self.container_layout.count():
+            item = self.container_layout.takeAt(0)
+            widget = item.widget()
+            if widget: 
+                widget.deleteLater()
+        
+        self.channel_btns = []
+        self.current_btn = None
 
+        # Build new cards
         for category, channels in structure.items():
-            cat_item = QTreeWidgetItem(self.tree)
-            cat_item.setText(0, f" {category}")
-            cat_item.setFont(0, font_cat)
-            cat_item.setForeground(0, QBrush(QColor("#bac2de")))
-            cat_item.setData(0, Qt.UserRole, "CATEGORY")
-            cat_item.setData(0, Qt.UserRole + 1, category)
-            cat_item.setExpanded(False)
+            group = CategoryGroup(category, channels, self)
+            self.container_layout.addWidget(group)
 
-            for channel in channels:
-                chan_item = QTreeWidgetItem(cat_item)
-                chan_item.setText(0, channel)
-                chan_item.setData(0, Qt.UserRole, "CHANNEL")
-                chan_item.setData(0, Qt.UserRole + 1, channel)
-                chan_item.setData(0, Qt.UserRole + 2, category)
+    def on_global_click(self):
+        if self.current_btn:
+            self.current_btn.set_active(False)
+            self.current_btn = None
+        self.selection_changed.emit("global", "Dashboard Portofolio")
 
-    def on_item_click(self, mode):
-        if mode == "global":
-            self.tree.clearSelection()
-            self.selection_changed.emit("global", "Dashboard Portofolio")
-
-    def on_tree_click(self, item, col):
-        item_type = item.data(0, Qt.UserRole)
+    def handle_channel_click(self, btn):
+        # Deselect old
+        if self.current_btn:
+            self.current_btn.set_active(False)
         
-        if item_type == "CATEGORY":
-            item.setExpanded(not item.isExpanded())
-            
-        elif item_type == "CHANNEL":
-            channel_name = item.data(0, Qt.UserRole + 1)
-            category_name = item.data(0, Qt.UserRole + 2)
-            full_id = f"{category_name}/{channel_name}"
-            self.selection_changed.emit("channel", full_id)
+        # Select new
+        self.current_btn = btn
+        self.current_btn.set_active(True)
+        
+        full_id = f"{btn.category}/{btn.channel_name}"
+        self.selection_changed.emit("channel", full_id)
 
-    # --- NEW: Programmatic Selection ---
     def select_channel(self, category_name, channel_name):
-        """Finds the tree item for the given channel, expands the category, and selects it."""
-        root = self.tree.invisibleRootItem()
-        cat_item = None
-        
-        # 1. Find Category
-        for i in range(root.childCount()):
-            item = root.child(i)
-            if item.data(0, Qt.UserRole + 1) == category_name:
-                cat_item = item
-                break
-        
-        if not cat_item: return
+        """Programmatic selection"""
+        for btn in self.channel_btns:
+            if btn.category == category_name and btn.channel_name == channel_name:
+                self.handle_channel_click(btn)
+                return
 
-        # 2. Expand Category
-        cat_item.setExpanded(True)
-
-        # 3. Find and Select Channel
-        for i in range(cat_item.childCount()):
-            item = cat_item.child(i)
-            if item.data(0, Qt.UserRole + 1) == channel_name:
-                self.tree.setCurrentItem(item)
-                # Manually emit signal because setting CurrentItem via code doesn't always trigger click
-                full_id = f"{category_name}/{channel_name}"
-                self.selection_changed.emit("channel", full_id)
-                break
-
-    # --- Context Menu (Unchanged) ---
-    def open_context_menu(self, position):
-        item = self.tree.itemAt(position)
-        if not item: return
-
-        item_type = item.data(0, Qt.UserRole)
+    # --- Context Menus ---
+    def open_channel_context_menu(self, btn, pos):
         menu = QMenu()
-        menu.setStyleSheet("QMenu { background: #2f2f2f; color: white; border: 1px solid #555; } QMenu::item:selected { background: #cc0000; }")
-
-        if item_type == "CHANNEL":
-            action_rename = QAction("✎ Rename Channel", self)
-            action_rename.triggered.connect(lambda: self.handle_rename_channel(item))
-            menu.addAction(action_rename)
-            
-            action_delete = QAction("🗑 Delete Channel", self)
-            action_delete.triggered.connect(lambda: self.handle_delete_channel(item))
-            menu.addAction(action_delete)
+        menu.setStyleSheet("""
+            QMenu { background: #2f2f2f; color: white; border: 1px solid #444; } 
+            QMenu::item { padding: 5px 20px; }
+            QMenu::item:selected { background: #cc0000; }
+        """)
         
-        elif item_type == "CATEGORY":
-            action_delete = QAction("🗑 Delete Category (Recursive)", self)
-            action_delete.triggered.connect(lambda: self.handle_delete_category(item))
-            menu.addAction(action_delete)
+        rn = QAction("✎ Rename Channel", self)
+        rn.triggered.connect(lambda: self.handle_rename(btn))
+        menu.addAction(rn)
+        
+        dl = QAction("🗑 Delete Channel", self)
+        dl.triggered.connect(lambda: self.handle_delete(btn))
+        menu.addAction(dl)
+        
+        menu.exec(btn.mapToGlobal(pos))
 
-        menu.exec(self.tree.viewport().mapToGlobal(position))
+    def open_category_context_menu(self, group, pos):
+        menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu { background: #2f2f2f; color: white; border: 1px solid #444; } 
+            QMenu::item { padding: 5px 20px; }
+            QMenu::item:selected { background: #cc0000; }
+        """)
+        
+        dl = QAction("🗑 Delete Category (Recursive)", self)
+        dl.triggered.connect(lambda: self.handle_delete_category(group))
+        menu.addAction(dl)
+        
+        menu.exec(group.header.mapToGlobal(pos))
 
-    def handle_rename_channel(self, item):
-        old_name = item.data(0, Qt.UserRole + 1)
-        category = item.data(0, Qt.UserRole + 2)
-        new_name, ok = QInputDialog.getText(self, "Rename", "New Channel Name:", text=old_name)
+    # --- Action Handlers ---
+    def handle_rename(self, btn):
+        new_name, ok = QInputDialog.getText(self, "Rename", "New Name:", text=btn.channel_name)
         if ok and new_name.strip():
             try:
-                rename_channel_folder(category, old_name, new_name.strip())
-                item.setText(0, new_name.strip())
-                item.setData(0, Qt.UserRole + 1, new_name.strip())
-                self.channel_renamed.emit(category, old_name, new_name.strip())
+                rename_channel_folder(btn.category, btn.channel_name, new_name.strip())
+                old_name = btn.channel_name
+                # Optimistic UI Update
+                btn.setText(new_name.strip())
+                btn.channel_name = new_name.strip()
+                self.channel_renamed.emit(btn.category, old_name, new_name.strip())
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
-    def handle_delete_channel(self, item):
-        name = item.data(0, Qt.UserRole + 1)
-        category = item.data(0, Qt.UserRole + 2)
-        res = QMessageBox.warning(self, "Confirm", f"Delete channel '{name}'?", QMessageBox.Yes|QMessageBox.No)
+    def handle_delete(self, btn):
+        res = QMessageBox.warning(self, "Confirm", f"Delete '{btn.channel_name}'?", QMessageBox.Yes|QMessageBox.No)
         if res == QMessageBox.Yes:
             try:
-                delete_channel_folder(category, name)
-                item.parent().removeChild(item)
-                self.channel_deleted.emit(name)
+                delete_channel_folder(btn.category, btn.channel_name)
+                self.channel_deleted.emit(btn.channel_name)
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
-    def handle_delete_category(self, item):
-        cat_name = item.data(0, Qt.UserRole + 1)
-        res = QMessageBox.warning(self, "Confirm", f"Delete Category '{cat_name}' AND ALL CHANNELS inside?", QMessageBox.Yes|QMessageBox.No)
+    def handle_delete_category(self, group):
+        res = QMessageBox.warning(self, "Confirm", f"Delete '{group.category_name}' AND ALL CHANNELS?", QMessageBox.Yes|QMessageBox.No)
         if res == QMessageBox.Yes:
             try:
-                delete_category_folder(cat_name)
-                index = self.tree.indexOfTopLevelItem(item)
-                self.tree.takeTopLevelItem(index)
+                delete_category_folder(group.category_name)
+                # Signal refresh
+                self.channel_deleted.emit("CAT_DEL")
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
