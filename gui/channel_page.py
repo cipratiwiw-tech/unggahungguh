@@ -205,34 +205,35 @@ class UploadRow(QFrame):
 # =============================================================================
 
 class ChannelPage(QWidget):
-    def __init__(self, channel_name):
+    def __init__(self, category, channel_name):
         super().__init__()
+        self.category = category       # Store category
         self.channel_name = channel_name
         
-        # Init Random Generator berdasarkan nama channel agar konsisten
-        self.rng = random.Random(channel_name)
+        self.rng = random.Random(f"{category}_{channel_name}") # Unique seed
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(20, 20, 20, 20)
         self.layout.setSpacing(25)
 
-        # --- SEKSI 1: STATISTIK ---
         self.create_stats_section()
-
-        # --- SEKSI 2: RIWAYAT VIDEO ---
         self.create_history_section()
-
-        # --- SEKSI 3: UPLOAD QUEUE ---
         self.create_upload_section()
 
         self.check_auth_status()
 
-    def update_channel_identity(self, new_name):
-        """Dipanggil jika channel direname dari Sidebar"""
+    def update_channel_identity(self, category, new_name):
+        self.category = category
         self.channel_name = new_name
-        # Note: Kita tidak me-refresh mock data agar user tidak kaget,
-        # tapi logic auth akan menyesuaikan path folder baru.
         self.check_auth_status()
+
+    def check_auth_status(self):
+        # Pass both args
+        status, color = AuthManager.check_status(self.category, self.channel_name)
+        # You can add a label to show status if you want, 
+        # or Main Window handles the buttons based on this.
+        # For now we just print or update internal state if needed.
+        pass
 
     def create_stats_section(self):
         stats_layout = QHBoxLayout()

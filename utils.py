@@ -8,19 +8,48 @@ def ensure_channels_dir():
     if not os.path.exists(BASE_CHANNELS_DIR):
         os.makedirs(BASE_CHANNELS_DIR)
 
-def get_existing_channels():
+def get_channel_structure():
+    """
+    Returns a dictionary: {'CategoryName': ['Channel1', 'Channel2'], ...}
+    """
     ensure_channels_dir()
-    return [
+    structure = {}
+    
+    # List all categories (folders in channels/)
+    categories = [
         d for d in os.listdir(BASE_CHANNELS_DIR) 
         if os.path.isdir(os.path.join(BASE_CHANNELS_DIR, d))
     ]
+    
+    for cat in categories:
+        cat_path = os.path.join(BASE_CHANNELS_DIR, cat)
+        channels = [
+            c for c in os.listdir(cat_path)
+            if os.path.isdir(os.path.join(cat_path, c))
+        ]
+        structure[cat] = channels
+        
+    return structure
 
-def create_new_channel(channel_name, source_client_secret):
+def create_category(category_name):
     ensure_channels_dir()
-    channel_path = os.path.join(BASE_CHANNELS_DIR, channel_name)
+    path = os.path.join(BASE_CHANNELS_DIR, category_name)
+    if os.path.exists(path):
+        raise FileExistsError(f"Kategori '{category_name}' sudah ada.")
+    os.makedirs(path)
+    return path
+
+def create_new_channel(category_name, channel_name, source_client_secret):
+    ensure_channels_dir()
+    # Path: channels/Category/ChannelName
+    cat_path = os.path.join(BASE_CHANNELS_DIR, category_name)
+    if not os.path.exists(cat_path):
+        os.makedirs(cat_path) # Auto create category if missing
+        
+    channel_path = os.path.join(cat_path, channel_name)
     
     if os.path.exists(channel_path):
-        raise FileExistsError(f"Channel '{channel_name}' sudah ada.")
+        raise FileExistsError(f"Channel '{channel_name}' sudah ada di kategori '{category_name}'.")
     
     os.makedirs(channel_path)
     os.makedirs(os.path.join(channel_path, "uploads"), exist_ok=True)
@@ -34,26 +63,28 @@ def create_new_channel(channel_name, source_client_secret):
         
     return channel_path
 
-# --- FUNGSI RENAME (WAJIB ADA) ---
-def rename_channel_folder(old_name, new_name):
-    """
-    Mengubah nama folder channel di disk.
-    """
-    old_path = os.path.join(BASE_CHANNELS_DIR, old_name)
-    new_path = os.path.join(BASE_CHANNELS_DIR, new_name)
+def rename_channel_folder(category, old_name, new_name):
+    base = os.path.join(BASE_CHANNELS_DIR, category)
+    old_path = os.path.join(base, old_name)
+    new_path = os.path.join(base, new_name)
     
     if not os.path.exists(old_path):
-        raise FileNotFoundError(f"Channel lama '{old_name}' tidak ditemukan di disk.")
-    
+        raise FileNotFoundError("Channel lama tidak ditemukan.")
     if os.path.exists(new_path):
-        raise FileExistsError(f"Nama channel '{new_name}' sudah digunakan.")
+        raise FileExistsError("Nama channel sudah digunakan.")
         
     os.rename(old_path, new_path)
     return new_path
 
-def delete_channel_folder(channel_name):
-    channel_path = os.path.join(BASE_CHANNELS_DIR, channel_name)
-    if os.path.exists(channel_path):
-        shutil.rmtree(channel_path)
+def delete_channel_folder(category, channel_name):
+    path = os.path.join(BASE_CHANNELS_DIR, category, channel_name)
+    if os.path.exists(path):
+        shutil.rmtree(path)
     else:
-        raise FileNotFoundError(f"Channel '{channel_name}' tidak ditemukan.")
+        raise FileNotFoundError("Channel tidak ditemukan.")
+
+# Optional: Rename/Delete Category
+def delete_category_folder(category):
+    path = os.path.join(BASE_CHANNELS_DIR, category)
+    if os.path.exists(path):
+        shutil.rmtree(path)
