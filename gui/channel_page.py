@@ -2,7 +2,7 @@
 import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton, 
-    QScrollArea, QFileDialog, QMessageBox
+    QScrollArea, QFileDialog
 )
 from PySide6.QtCore import Qt, QTimer
 from gui.custom_widgets import AutoResizingTextEdit, ScheduleWidget
@@ -11,43 +11,78 @@ from core.auth_manager import AuthManager
 class UploadRow(QFrame):
     def __init__(self):
         super().__init__()
-        self.setStyleSheet("background: transparent; border-bottom: 1px solid #3f3f3f;")
+        # Garis Pemisah Baris (Row Separator)
+        self.setStyleSheet("""
+            UploadRow {
+                background-color: #2f2f2f;
+                border-bottom: 1px solid #3f3f3f; 
+            }
+        """)
+        
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0) # Nol margin agar border kolom menyatu
+        layout.setSpacing(0) # Nol spacing agar garis vertikal continuous
+
+        # --- Helper untuk membuat Cell Container dengan Border Kanan ---
+        def create_cell(widget, width=0, stretch=0, last=False):
+            cell = QFrame()
+            # Garis Pemisah Kolom (Column Separator) - Sedikit lebih gelap (#2a2a2a)
+            # Kecuali kolom terakhir (last=True) tidak punya border kanan
+            border_style = "border-right: 1px solid #2a2a2a;" if not last else "border: none;"
+            cell.setStyleSheet(f"""
+                QFrame {{ 
+                    background: transparent; 
+                    {border_style}
+                }}
+            """)
+            
+            c_layout = QVBoxLayout(cell)
+            c_layout.setContentsMargins(0, 0, 0, 0)
+            c_layout.addWidget(widget)
+            
+            if width > 0: cell.setFixedWidth(width)
+            layout.addWidget(cell, stretch)
+            return cell
 
         # Col 1: Thumb
-        self.btn_thumb = QPushButton("📷 Upload")
-        self.btn_thumb.setFixedSize(80, 60)
+        self.btn_thumb = QPushButton("📷 Drop Img")
+        self.btn_thumb.setFixedSize(60, 40)
         self.btn_thumb.setStyleSheet("""
-            QPushButton { border: 1px dashed #aaaaaa; color: #aaaaaa; font-size: 10px; }
-            QPushButton:hover { border-color: white; color: white; }
+            QPushButton { border: none; background: transparent; color: #aaaaaa; font-size: 10px; }
+            QPushButton:hover { color: #cc0000; }
         """)
         self.btn_thumb.clicked.connect(self.select_thumb)
-        layout.addWidget(self.btn_thumb)
+        
+        # Bungkus tombol thumb agar bisa di tengah cell
+        thumb_container = QWidget()
+        tc_layout = QVBoxLayout(thumb_container)
+        tc_layout.setAlignment(Qt.AlignCenter)
+        tc_layout.setContentsMargins(0,0,0,0)
+        tc_layout.addWidget(self.btn_thumb)
+        
+        create_cell(thumb_container, width=80)
 
         # Col 2: Title
         self.inp_title = AutoResizingTextEdit("Judul Video...")
-        layout.addWidget(self.inp_title, 2)
+        create_cell(self.inp_title, stretch=2)
 
         # Col 3: Desc
         self.inp_desc = AutoResizingTextEdit("Deskripsi...")
-        layout.addWidget(self.inp_desc, 3)
+        create_cell(self.inp_desc, stretch=3)
 
         # Col 4: Tags
-        self.inp_tags = AutoResizingTextEdit("Tags (koma)...")
-        layout.addWidget(self.inp_tags, 2)
+        self.inp_tags = AutoResizingTextEdit("Tags...")
+        create_cell(self.inp_tags, stretch=2)
 
-        # Col 5: Schedule
+        # Col 5: Schedule (Last - No Right Border)
         self.schedule = ScheduleWidget()
-        self.schedule.setFixedWidth(120)
-        layout.addWidget(self.schedule)
+        create_cell(self.schedule, width=130, last=True)
 
     def select_thumb(self):
         path, _ = QFileDialog.getOpenFileName(self, "Pilih Thumbnail", "", "Images (*.jpg *.png)")
         if path:
-            self.btn_thumb.setText("✔ Ready")
-            self.btn_thumb.setStyleSheet("border: 1px solid #2ba640; color: #2ba640; background: rgba(43, 166, 64, 0.1);")
+            self.btn_thumb.setText("✔ OK")
+            self.btn_thumb.setStyleSheet("color: #2ba640; font-weight: bold; border: none; background: transparent;")
 
 class ChannelPage(QWidget):
     def __init__(self, channel_name):
@@ -58,123 +93,105 @@ class ChannelPage(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
 
-        # --- 1. Top Stats (Simpel) ---
-        stats_frame = QFrame()
-        stats_frame.setStyleSheet("background: #2f2f2f; border-radius: 8px; padding: 15px;")
-        sf_layout = QHBoxLayout(stats_frame)
-        sf_layout.addWidget(QLabel(f"CHANNEL: {channel_name}"))
-        sf_layout.addWidget(QLabel(" | "))
-        sf_layout.addWidget(QLabel("QUOTA HARIAN: 3/5"))
-        sf_layout.addStretch()
-        lbl_status = QLabel("API DISCONNECTED")
-        lbl_status.setStyleSheet("color: #ffaa00; font-weight: bold;")
-        self.lbl_auth_status = lbl_status
-        sf_layout.addWidget(lbl_status)
-        main_layout.addWidget(stats_frame)
+        # --- Top Stats & Section Divider ---
+        top_container = QWidget()
+        tc_layout = QVBoxLayout(top_container)
+        tc_layout.setContentsMargins(0,0,0,0)
+        tc_layout.setSpacing(5)
+        
+        # Header Text
+        lbl_header = QLabel(f"Overview: {channel_name}")
+        lbl_header.setStyleSheet("font-size: 18px; font-weight: bold; color: white;")
+        tc_layout.addWidget(lbl_header)
+        
+        # Garis Batas Bagian (Section Divider)
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setStyleSheet("color: #3f3f3f;") # Menggunakan properti color untuk HLine standard
+        tc_layout.addWidget(divider)
+        
+        main_layout.addWidget(top_container)
 
-        # --- 2. UPLOAD QUEUE CONTAINER (RED BORDER) ---
+        # --- UPLOAD GRID CONTAINER ---
         queue_container = QFrame()
         queue_container.setObjectName("QueueBox")
         queue_container.setStyleSheet("""
             #QueueBox {
                 background-color: #2f2f2f;
-                border: 2px solid #cc0000;
-                border-radius: 8px;
+                border: 2px solid #cc0000; /* Border Luar Merah */
+                border-radius: 6px;
             }
         """)
         q_layout = QVBoxLayout(queue_container)
         q_layout.setContentsMargins(0, 0, 0, 0)
         q_layout.setSpacing(0)
 
-        # Header Grid
-        header = QFrame()
-        header.setFixedHeight(40)
-        header.setStyleSheet("background-color: #cc0000; border-top-left-radius: 6px; border-top-right-radius: 6px;")
-        h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(5, 0, 5, 0)
+        # HEADER KOLOM (Merah dengan separator putih transparan)
+        header_frame = QFrame()
+        header_frame.setFixedHeight(35)
+        header_frame.setStyleSheet("""
+            QFrame { 
+                background-color: #cc0000; 
+                border-top-left-radius: 4px; 
+                border-top-right-radius: 4px; 
+            }
+        """)
+        h_layout = QHBoxLayout(header_frame)
+        h_layout.setContentsMargins(0, 0, 0, 0)
+        h_layout.setSpacing(0)
         
         labels = ["THUMB", "JUDUL", "DESKRIPSI", "TAGS", "JADWAL"]
-        stretches = [0, 2, 3, 2, 0] # Proporsi lebar
-        widths = [80, 0, 0, 0, 120]
+        stretches = [0, 2, 3, 2, 0]
+        widths = [80, 0, 0, 0, 130]
         
         for i, text in enumerate(labels):
-            l = QLabel(text)
-            l.setStyleSheet("color: white; font-weight: bold; font-size: 11px;")
-            l.setAlignment(Qt.AlignCenter)
-            if widths[i] > 0: l.setFixedWidth(widths[i])
-            h_layout.addWidget(l, stretch=stretches[i])
+            lbl = QLabel(text)
+            lbl.setAlignment(Qt.AlignCenter)
+            # Separator Putih Transparan antar header kolom
+            border = "border-right: 1px solid rgba(255,255,255,0.2);" if i < len(labels)-1 else "border: none;"
+            lbl.setStyleSheet(f"color: white; font-weight: bold; font-size: 11px; {border}")
+            
+            if widths[i] > 0: lbl.setFixedWidth(widths[i])
+            h_layout.addWidget(lbl, stretch=stretches[i])
         
-        q_layout.addWidget(header)
+        q_layout.addWidget(header_frame)
 
-        # Scroll Area untuk 5 baris input
+        # Scroll Area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("background: transparent; border: none;")
+        # Hilangkan border scroll area agar menyatu
+        scroll.setStyleSheet("background: #2f2f2f; border: none;") 
         
         content_widget = QWidget()
+        content_widget.setStyleSheet("background-color: #2f2f2f;")
         self.rows_layout = QVBoxLayout(content_widget)
         self.rows_layout.setSpacing(0)
         self.rows_layout.setContentsMargins(0,0,0,0)
         
-        # Tambah 5 Baris
+        # 5 Baris Antrian
         self.upload_rows = []
         for _ in range(5):
             row = UploadRow()
             self.rows_layout.addWidget(row)
             self.upload_rows.append(row)
             
-        self.rows_layout.addStretch() # Push ke atas
+        self.rows_layout.addStretch() 
         scroll.setWidget(content_widget)
         q_layout.addWidget(scroll)
 
-        # Footer Button
+        # Tombol Upload Bawah
         self.btn_upload = QPushButton("UPLOAD SEMUA VIDEO (5)")
-        self.btn_upload.setFixedHeight(50)
+        self.btn_upload.setFixedHeight(45)
         self.btn_upload.setCursor(Qt.PointingHandCursor)
         self.btn_upload.setStyleSheet("""
             QPushButton {
-                background-color: #cc0000; color: white; font-weight: bold; font-size: 14px;
-                border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; border: none;
+                background-color: #cc0000; color: white; font-weight: bold;
+                border-radius: 0px; 
+                border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; 
+                border: none;
             }
             QPushButton:hover { background-color: #e60000; }
         """)
-        self.btn_upload.clicked.connect(self.start_upload_simulation)
         q_layout.addWidget(self.btn_upload)
 
         main_layout.addWidget(queue_container)
-        
-        # Check status auth awal
-        self.check_auth()
-
-    def check_auth(self):
-        status, color = AuthManager.check_status(self.channel_name)
-        # Mapping warna hex dari utils ke style baru
-        text_color = "#2ba640" if "Connected" in status else "#ffaa00"
-        if "Missing" in status: text_color = "#cc0000"
-        
-        self.lbl_auth_status.setText(status.upper())
-        self.lbl_auth_status.setStyleSheet(f"font-weight: bold; color: {text_color};")
-
-    def start_upload_simulation(self):
-        self.btn_upload.setText("MEMPROSES...")
-        self.btn_upload.setStyleSheet("background-color: #8a0000; color: #aaaaaa; border: none;")
-        self.btn_upload.setEnabled(False)
-        
-        # Timer simulasi 2 detik
-        QTimer.singleShot(2000, self.finish_upload)
-
-    def finish_upload(self):
-        self.btn_upload.setText("SELESAI! ✔")
-        self.btn_upload.setStyleSheet("background-color: #2ba640; color: white; border: none;")
-        QTimer.singleShot(2000, lambda: self.reset_button())
-
-    def reset_button(self):
-        self.btn_upload.setText("UPLOAD SEMUA VIDEO (5)")
-        self.btn_upload.setEnabled(True)
-        self.btn_upload.setStyleSheet("""
-            QPushButton {
-                background-color: #cc0000; color: white; font-weight: bold; font-size: 14px;
-                border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; border: none;
-            }
-            QPushButton:hover { background-color: #e60000; }
-        """)

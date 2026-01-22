@@ -17,24 +17,21 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("UnggahUngguh - Studio Manager")
         self.resize(1280, 800)
-        
-        # Terapkan Global Stylesheet
         self.setStyleSheet(GLOBAL_STYLESHEET)
 
-        # Central Widget
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 1. Sidebar (Kiri)
+        # Sidebar
         self.sidebar = Sidebar()
         self.sidebar.selection_changed.connect(self.navigate)
         self.sidebar.add_channel_clicked.connect(self.add_new_channel_flow)
         main_layout.addWidget(self.sidebar)
 
-        # 2. Konten Utama (Kanan)
+        # Konten Utama
         content_col = QWidget()
         content_layout = QVBoxLayout(content_col)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -43,31 +40,47 @@ class MainWindow(QMainWindow):
         # --- TOP BAR ---
         self.top_bar = QFrame()
         self.top_bar.setFixedHeight(60)
-        self.top_bar.setStyleSheet("background-color: #212121; border-bottom: 1px solid #3f3f3f;")
+        # Pemisah Horizontal Utama (Bawah)
+        self.top_bar.setStyleSheet("""
+            QFrame {
+                background-color: #212121; 
+                border-bottom: 1px solid #3f3f3f; 
+            }
+        """)
         tb_layout = QHBoxLayout(self.top_bar)
         tb_layout.setContentsMargins(20, 0, 20, 0)
+        tb_layout.setSpacing(10)
         
-        # Judul Halaman
         self.lbl_page_title = QLabel("Dashboard Portofolio")
-        self.lbl_page_title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        self.lbl_page_title.setStyleSheet("font-size: 18px; font-weight: bold; border: none;")
         tb_layout.addWidget(self.lbl_page_title)
         
         tb_layout.addStretch()
         
-        # Action Buttons (Conditional)
-        self.btn_secret = QPushButton("📄 Add secret_json")
+        # Action Buttons Container
+        self.action_container = QFrame()
+        # Garis Batas Group Aksi (Vertical Separator di kanan container tombol)
+        self.action_container.setStyleSheet("border-right: 1px solid #3f3f3f; border-bottom: none; border-top: none; border-left: none;")
+        ac_layout = QHBoxLayout(self.action_container)
+        ac_layout.setContentsMargins(0, 0, 15, 0) # Padding kanan agar garis tidak nempel tombol
+        
+        self.btn_secret = QPushButton("Add Secret")
         self.btn_secret.clicked.connect(self.action_add_secret)
         self.btn_secret.setVisible(False)
-        tb_layout.addWidget(self.btn_secret)
+        self.btn_secret.setStyleSheet("border: 1px solid #3f3f3f; font-size: 11px;")
+        ac_layout.addWidget(self.btn_secret)
         
-        self.btn_oauth = QPushButton("🔑 OAuth Login")
+        self.btn_oauth = QPushButton("OAuth Login")
         self.btn_oauth.clicked.connect(self.action_oauth)
         self.btn_oauth.setVisible(False)
-        tb_layout.addWidget(self.btn_oauth)
+        self.btn_oauth.setStyleSheet("border: 1px solid #cc0000; color: #cc0000; font-weight: bold; font-size: 11px;")
+        ac_layout.addWidget(self.btn_oauth)
         
-        # Profile
+        tb_layout.addWidget(self.action_container)
+        
+        # Profile Section
         lbl_profile = QLabel("Admin User")
-        lbl_profile.setStyleSheet("color: #aaaaaa; font-weight: bold; margin-left: 15px;")
+        lbl_profile.setStyleSheet("color: #aaaaaa; font-weight: bold; margin-left: 5px; border: none;")
         tb_layout.addWidget(lbl_profile)
         
         content_layout.addWidget(self.top_bar)
@@ -76,16 +89,11 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         content_layout.addWidget(self.stack)
 
-        # Init Views
         self.dashboard_view = Dashboard()
         self.stack.addWidget(self.dashboard_view)
         
-        # Dictionary untuk menyimpan view channel yang sudah dibuka
         self.channel_views = {} 
-
         main_layout.addWidget(content_col)
-
-        # Load data awal
         self.refresh_sidebar()
 
     def refresh_sidebar(self):
@@ -94,19 +102,15 @@ class MainWindow(QMainWindow):
 
     def navigate(self, mode, title):
         self.lbl_page_title.setText(title)
-        
         if mode == "global":
             self.stack.setCurrentWidget(self.dashboard_view)
             self.toggle_auth_buttons(False)
         else:
-            # Mode Channel
             channel_name = title
             if channel_name not in self.channel_views:
-                # Lazy loading: buat page baru jika belum ada
                 page = ChannelPage(channel_name)
                 self.channel_views[channel_name] = page
                 self.stack.addWidget(page)
-            
             self.stack.setCurrentWidget(self.channel_views[channel_name])
             self.toggle_auth_buttons(True)
             self.current_active_channel = channel_name
@@ -114,22 +118,23 @@ class MainWindow(QMainWindow):
     def toggle_auth_buttons(self, visible):
         self.btn_secret.setVisible(visible)
         self.btn_oauth.setVisible(visible)
+        # Sembunyikan garis separator jika tombol tidak ada
+        if visible:
+            self.action_container.show()
+        else:
+            self.action_container.hide()
 
     def add_new_channel_flow(self):
         from PySide6.QtWidgets import QInputDialog
         name, ok = QInputDialog.getText(self, "New Channel", "Nama Folder Channel:")
         if ok and name.strip():
-            # Dummy secret path handling (user bisa add nanti lewat tombol di top bar)
             try:
-                # Kita perlu logic modifikasi di utils.py agar secret optional saat create
-                # tapi untuk sekarang kita pakai dummy file
+                # Dummy flow seperti sebelumnya
                 dummy_secret = "client_secret.json" 
                 if not os.path.exists(dummy_secret):
                     with open(dummy_secret, "w") as f: f.write("{}")
-                
                 create_new_channel(name, dummy_secret)
                 self.refresh_sidebar()
-                QMessageBox.information(self, "Sukses", f"Channel {name} dibuat!")
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
