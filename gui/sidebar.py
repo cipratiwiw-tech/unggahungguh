@@ -158,7 +158,9 @@ class Sidebar(QWidget):
     
     def __init__(self):
         super().__init__()
-        self.setFixedWidth(290)
+        
+        self.setMinimumWidth(220)  # Agar tidak terlalu kecil
+        self.resize(290, self.height()) # Default awal
         self.setStyleSheet("background-color: #121212;") # Global Darker BG
 
         # Main Layout

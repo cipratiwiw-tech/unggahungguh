@@ -3,14 +3,14 @@ import os
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, 
     QStackedWidget, QPushButton, QFrame, QFileDialog, QMessageBox, 
-    QDialog, QComboBox, QLineEdit, QDialogButtonBox, QFormLayout
+    QDialog, QComboBox, QLineEdit, QDialogButtonBox, QFormLayout,
+    QSplitter, QSizePolicy # Tambahkan QSplitter
 )
 from PySide6.QtCore import Qt
 from gui.sidebar import Sidebar
 from gui.dashboard import Dashboard
 from gui.channel_page import ChannelPage
 from gui.styles import GLOBAL_STYLESHEET
-# FIXED IMPORT: uses get_channel_structure instead of get_existing_channels
 from utils import get_channel_structure, create_new_channel, create_category 
 from core.auth_manager import AuthManager, OAuthWorker
 
@@ -60,7 +60,19 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 1. Sidebar
+        # --- SETUP SPLITTER (Agar Sidebar bisa digeser) ---
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setHandleWidth(2) # Garis pemisah tipis
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #2a2a2a;
+            }
+            QSplitter::handle:hover {
+                background-color: #cc0000; /* Warna merah saat di-hover */
+            }
+        """)
+
+        # 1. Sidebar (Left Pane)
         self.sidebar = Sidebar()
         self.sidebar.selection_changed.connect(self.navigate)
         self.sidebar.add_channel_clicked.connect(self.add_new_channel_flow)
@@ -69,9 +81,9 @@ class MainWindow(QMainWindow):
         self.sidebar.channel_renamed.connect(self.handle_channel_renamed)
         self.sidebar.channel_deleted.connect(self.handle_channel_deleted)
         
-        main_layout.addWidget(self.sidebar)
+        self.splitter.addWidget(self.sidebar)
 
-        # 2. Content
+        # 2. Content (Right Pane)
         content_col = QWidget()
         content_layout = QVBoxLayout(content_col)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -120,11 +132,17 @@ class MainWindow(QMainWindow):
         # Cache for Channel Pages
         self.channel_views = {} 
 
-        main_layout.addWidget(content_col)
+        # Add Content to Splitter
+        self.splitter.addWidget(content_col)
+
+        # Set Initial Sizes (Sidebar 290px, Content sisa)
+        self.splitter.setSizes([290, 990])
+        self.splitter.setCollapsible(0, False) # Sidebar tidak bisa di-collapse total
+
+        main_layout.addWidget(self.splitter)
         self.refresh_sidebar()
 
     def refresh_sidebar(self):
-        # Using the correct function from utils.py
         structure = get_channel_structure()
         self.sidebar.load_channels(structure)
 
@@ -135,7 +153,6 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.dashboard_view)
             self.toggle_auth_buttons(False)
         else:
-            # identifier is "Category/ChannelName"
             if "/" in identifier:
                 cat_name, chan_name = identifier.split("/", 1)
                 
@@ -182,13 +199,8 @@ class MainWindow(QMainWindow):
                     if not os.path.exists(dummy_secret):
                         with open(dummy_secret, "w") as f: f.write("{}")
                     
-                    # 1. Create
                     create_new_channel(cat, name, dummy_secret)
-                    
-                    # 2. Refresh Sidebar (Rebuilds Tree)
                     self.refresh_sidebar()
-                    
-                    # 3. SELECT NEW CHANNEL (Logic added here)
                     self.sidebar.select_channel(cat, name)
                     
                 except Exception as e:
