@@ -1,19 +1,25 @@
-# gui/custom_widgets.py
-from PySide6.QtWidgets import QTextEdit, QFrame, QVBoxLayout, QDateEdit, QComboBox, QSizePolicy
-from PySide6.QtCore import Qt, QDate, Signal
+from PySide6.QtWidgets import (
+    QTextEdit, QFrame, QVBoxLayout, QComboBox, QSizePolicy, 
+    QPushButton, QWidgetAction, QCalendarWidget, QMenu, QAbstractItemView
+)
+from PySide6.QtCore import Qt, QDate, Signal, QRect
 
 class AutoResizingTextEdit(QTextEdit):
     """
-    Text area yang otomatis membesar tingginya mengikuti konten (Auto-Expand).
+    Text area yang otomatis membesar, TAPI menolak drop file 
+    agar file yang di-drag tidak masuk sebagai teks aneh.
     """
-    heightChanged = Signal() # Signal agar parent layout bisa update
+    heightChanged = Signal() 
 
     def __init__(self, placeholder=""):
         super().__init__()
         self.setPlaceholderText(placeholder)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.NoFrame)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
+        
+        # [PENTING] Matikan fitur drop bawaan agar tidak 'memakan' file path
+        self.setAcceptDrops(False) 
         
         self.setStyleSheet("""
             QTextEdit {
@@ -23,6 +29,7 @@ class AutoResizingTextEdit(QTextEdit):
                 padding: 6px;
                 color: white;
                 font-family: 'Segoe UI', sans-serif;
+                font-size: 12px;
             }
             QTextEdit:focus {
                 border-bottom: 2px solid #cc0000;
@@ -30,55 +37,159 @@ class AutoResizingTextEdit(QTextEdit):
             }
         """)
         
-        self.min_height = 45
-        self.setFixedHeight(self.min_height)
-        
-        # Hubungkan perubahan isi dokumen ke fungsi resize
+        self.min_height = 50 # Sedikit lebih tinggi agar lega
+        self.setMinimumHeight(self.min_height)
         self.document().contentsChanged.connect(self.adjust_height)
 
     def adjust_height(self):
         doc_height = self.document().size().height()
-        new_height = int(doc_height + 15) # Padding extra agar nyaman
-        
-        if new_height < self.min_height:
-            new_height = self.min_height
+        new_height = int(doc_height + 15) 
+        if new_height < self.min_height: new_height = self.min_height
             
-        if new_height != self.height():
-            self.setFixedHeight(new_height)
-            self.heightChanged.emit() # Beritahu parent
+        if new_height != self.minimumHeight():
+            self.setMinimumHeight(new_height)
+            self.heightChanged.emit() 
             self.updateGeometry()
 
+class DateSelectorButton(QPushButton):
+    """ Tombol Tanggal Custom dengan Popup Kalender """
+    def __init__(self):
+        super().__init__()
+        self.current_date = QDate.currentDate()
+        self.setText(self.current_date.toString("yyyy-MM-dd"))
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setFixedHeight(30) # Tinggi fix biar rapi
+        
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: #1e1e1e;
+                color: #ddd;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
+                padding-left: 10px;
+                text-align: left;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                border-color: #cc0000;
+                background-color: #252525;
+                color: white;
+            }
+        """)
+
+        # Setup Menu & Kalender
+        self.menu = QMenu(self)
+        self.menu.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        self.menu.setAttribute(Qt.WA_TranslucentBackground)
+        self.menu.setStyleSheet("QMenu { background: transparent; border: none; }")
+        
+        self.calendar = QCalendarWidget()
+        self.calendar.setGridVisible(False)
+        self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        self.calendar.setNavigationBarVisible(True)
+        
+        # Style Kalender Dark Mode Lengkap
+        self.calendar.setStyleSheet("""
+            QCalendarWidget QWidget { 
+                background-color: #2f2f2f; 
+                color: white; 
+                border-radius: 6px;
+            }
+            QCalendarWidget QToolButton {
+                color: white;
+                background-color: transparent;
+                icon-size: 16px;
+                font-weight: bold;
+            }
+            QCalendarWidget QToolButton:hover {
+                background-color: #444;
+                border-radius: 4px;
+            }
+            QCalendarWidget QSpinBox {
+                background-color: #222;
+                color: white;
+                selection-background-color: #cc0000;
+            }
+            QCalendarWidget QTableView {
+                background-color: #2f2f2f;
+                selection-background-color: #cc0000; /* Warna Merah Youtube */
+                selection-color: white;
+            }
+            QCalendarWidget QTableView::item:hover {
+                background-color: #444;
+            }
+        """)
+        
+        self.calendar.clicked.connect(self.on_date_selected)
+        
+        cal_action = QWidgetAction(self.menu)
+        cal_action.setDefaultWidget(self.calendar)
+        self.menu.addAction(cal_action)
+        
+        self.clicked.connect(self.show_calendar)
+
+    def show_calendar(self):
+        self.calendar.setSelectedDate(self.current_date)
+        self.menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
+
+    def on_date_selected(self, date):
+        self.current_date = date
+        self.setText(date.toString("yyyy-MM-dd"))
+        self.menu.close()
+        
+    def get_date_str(self):
+        return self.current_date.toString("yyyy-MM-dd")
+
 class ScheduleWidget(QFrame):
-    """
-    Widget gabungan Date + Time Dropdown (15 min interval).
-    """
     def __init__(self):
         super().__init__()
         self.setStyleSheet("background: transparent; border: none;")
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self.setFixedWidth(130) # Fix lebar kolom jadwal
+        
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(5)
-        layout.setAlignment(Qt.AlignTop) # Penting agar menempel ke atas saat row membesar
+        layout.setAlignment(Qt.AlignTop)
 
-        input_style = """
-            background: #181818; 
-            border: 1px solid #3f3f3f; 
-            border-radius: 4px;
-            padding: 4px;
-            color: white;
-        """
-
-        self.date_edit = QDateEdit()
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setDate(QDate.currentDate())
-        self.date_edit.setDisplayFormat("yyyy-MM-dd")
-        self.date_edit.setStyleSheet(f"QDateEdit {{ {input_style} }}")
-
+        # 1. Date
+        self.date_btn = DateSelectorButton()
+        
+        # 2. Time
         self.time_combo = QComboBox()
-        self.time_combo.setStyleSheet(f"QComboBox {{ {input_style} }}")
+        self.time_combo.setCursor(Qt.PointingHandCursor)
+        self.time_combo.setFixedHeight(30)
+        self.time_combo.setMaxVisibleItems(10) # Agar dropdown tidak kepanjangan
+        
+        self.time_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #1e1e1e;
+                color: #ddd;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
+                padding-left: 10px;
+                font-size: 11px;
+            }
+            QComboBox:hover {
+                border-color: #cc0000;
+                color: white;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2f2f2f;
+                color: white;
+                selection-background-color: #cc0000;
+                border: 1px solid #333;
+                outline: none;
+            }
+        """)
         self.populate_times()
 
-        layout.addWidget(self.date_edit)
+        layout.addWidget(self.date_btn)
         layout.addWidget(self.time_combo)
 
     def populate_times(self):
@@ -86,3 +197,9 @@ class ScheduleWidget(QFrame):
         for h in range(24):
             for m in [0, 15, 30, 45]:
                 self.time_combo.addItem(f"{h:02d}:{m:02d}")
+
+    def get_scheduled_datetime(self):
+        return {
+            "date": self.date_btn.get_date_str(),
+            "time": self.time_combo.currentText()
+        }
