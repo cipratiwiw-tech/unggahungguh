@@ -1,14 +1,12 @@
-# gui/main_window.py
 import os
 import shutil
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, 
     QStackedWidget, QPushButton, QFrame, QFileDialog, QMessageBox, 
     QDialog, QComboBox, QLineEdit, QDialogButtonBox, QFormLayout,
-    QSplitter, QSizePolicy, QApplication, 
+    QSplitter, QSizePolicy, QApplication
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QClipboard
 from gui.sidebar import Sidebar
 from gui.dashboard import Dashboard
 from gui.channel_page import ChannelPage
@@ -62,19 +60,15 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # --- SETUP SPLITTER (Agar Sidebar bisa digeser) ---
+        # --- SETUP SPLITTER ---
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setHandleWidth(2)
         self.splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #2a2a2a;
-            }
-            QSplitter::handle:hover {
-                background-color: #cc0000; 
-            }
+            QSplitter::handle { background-color: #2a2a2a; }
+            QSplitter::handle:hover { background-color: #cc0000; }
         """)
 
-        # 1. Sidebar (Left Pane)
+        # 1. Sidebar
         self.sidebar = Sidebar()
         self.sidebar.selection_changed.connect(self.navigate)
         self.sidebar.add_channel_clicked.connect(self.add_new_channel_flow)
@@ -85,7 +79,7 @@ class MainWindow(QMainWindow):
         
         self.splitter.addWidget(self.sidebar)
 
-        # 2. Content (Right Pane)
+        # 2. Content
         content_col = QWidget()
         content_layout = QVBoxLayout(content_col)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -123,6 +117,7 @@ class MainWindow(QMainWindow):
         self.btn_oauth.setCursor(Qt.PointingHandCursor)
         self.btn_oauth.clicked.connect(self.action_oauth)
         self.btn_oauth.setVisible(False)
+        # Default Style (Red)
         self.btn_oauth.setStyleSheet("""
             QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; }
             QPushButton:hover { background: #e60000; border-color: #ff3333; }
@@ -140,18 +135,34 @@ class MainWindow(QMainWindow):
         self.dashboard_view = Dashboard()
         self.stack.addWidget(self.dashboard_view)
         
-        # Cache for Channel Pages
         self.channel_views = {} 
 
-        # Add Content to Splitter
         self.splitter.addWidget(content_col)
-
-        # Set Initial Sizes (Sidebar 290px, Content sisa)
         self.splitter.setSizes([220, 990])
         self.splitter.setCollapsible(0, False)
 
         main_layout.addWidget(self.splitter)
         self.refresh_sidebar()
+
+    # [NEW] Helper Function untuk update warna tombol di Top Bar
+    def update_top_bar_auth_status(self):
+        if not hasattr(self, 'current_active_id'): return
+        
+        # Cek status langsung dari AuthManager
+        status, _ = AuthManager.check_status(self.current_active_cat, self.current_active_chan)
+        
+        if "Connected" in status:
+            self.btn_oauth.setText("Connected ✔")
+            self.btn_oauth.setStyleSheet("""
+                QPushButton { border: 1px solid #2ba640; color: white; background: #2ba640; font-weight: bold; }
+                QPushButton:hover { background: #36d150; border-color: #36d150; }
+            """)
+        else:
+            self.btn_oauth.setText("OAuth Login")
+            self.btn_oauth.setStyleSheet("""
+                QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; }
+                QPushButton:hover { background: #e60000; border-color: #ff3333; }
+            """)
 
     def refresh_sidebar(self):
         structure = get_channel_structure()
@@ -172,17 +183,19 @@ class MainWindow(QMainWindow):
                     self.channel_views[identifier] = page
                     self.stack.addWidget(page)
                 
-                # Update current view
                 current_page = self.channel_views[identifier]
                 self.stack.setCurrentWidget(current_page)
                 
-                # Cek ulang status auth setiap kali navigasi
+                # Cek status di Page
                 current_page.check_auth_status()
                 
                 self.toggle_auth_buttons(True)
                 self.current_active_id = identifier 
                 self.current_active_cat = cat_name
                 self.current_active_chan = chan_name
+                
+                # [UPDATED] Update juga tombol di Top Bar
+                self.update_top_bar_auth_status()
 
     def toggle_auth_buttons(self, visible):
         self.btn_secret.setVisible(visible)
@@ -212,7 +225,6 @@ class MainWindow(QMainWindow):
             cat, name = dialog.get_data()
             if name:
                 try:
-                    # Buat file dummy secret sementara agar folder structure terbentuk
                     dummy_secret = "client_secret.json" 
                     if not os.path.exists(dummy_secret):
                         with open(dummy_secret, "w") as f: f.write("{}")
@@ -244,28 +256,25 @@ class MainWindow(QMainWindow):
         self.channel_views = {}
 
     def action_add_secret(self):
-        """Mengambil file JSON secret dari user dan menyimpannya di folder channel"""
         if not hasattr(self, 'current_active_id'): return
-        
         path, _ = QFileDialog.getOpenFileName(self, "Pilih client_secret.json", "", "JSON (*.json)")
         if path:
             try:
                 base_dir = os.path.join("channels", self.current_active_cat, self.current_active_chan)
                 target_path = os.path.join(base_dir, "client_secret.json")
-                
-                # Copy file
                 shutil.copy(path, target_path)
                 QMessageBox.information(self, "Sukses", "Client Secret berhasil disimpan.\nSilakan klik tombol 'OAuth Login'.")
                 
-                # Refresh UI Status
                 if self.current_active_id in self.channel_views:
                     self.channel_views[self.current_active_id].check_auth_status()
+                
+                # [UPDATED]
+                self.update_top_bar_auth_status()
                     
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Gagal menyimpan secret: {str(e)}")
 
     def action_oauth(self):
-        """Memulai proses login OAuth Google"""
         if not hasattr(self, 'current_active_id'): return
         
         self.btn_oauth.setEnabled(False)
@@ -273,64 +282,58 @@ class MainWindow(QMainWindow):
         
         self.oauth_worker = OAuthWorker(self.current_active_cat, self.current_active_chan)
         self.oauth_worker.finished.connect(self.on_oauth_finished)
-        # [NEW] Connect signal URL
         self.oauth_worker.auth_url_signal.connect(self.on_auth_url_received)
-        self.oauth_worker.start()
         self.oauth_worker.start()
 
     def on_auth_url_received(self, url):
-        # Kita buat Dialog khusus agar user bisa copy link
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Login YouTube")
-        dialog.setMinimumWidth(500)
-        dialog.setStyleSheet("background: #2f2f2f; color: white;")
+        self.auth_dialog = QDialog(self)
+        self.auth_dialog.setWindowTitle("Login YouTube")
+        self.auth_dialog.setMinimumWidth(500)
+        self.auth_dialog.setStyleSheet("background: #2f2f2f; color: white;")
         
-        layout = QVBoxLayout(dialog)
-        
+        layout = QVBoxLayout(self.auth_dialog)
         lbl_info = QLabel("Salin link di bawah ini dan buka di <b>Profil Browser</b> yang Anda inginkan:")
         lbl_info.setWordWrap(True)
         layout.addWidget(lbl_info)
         
-        # Text Edit untuk URL (Read Only)
         txt_url = QLineEdit(url)
         txt_url.setReadOnly(True)
         txt_url.setStyleSheet("padding: 8px; border: 1px solid #555; background: #181818; color: #aaa;")
         layout.addWidget(txt_url)
         
-        # Tombol Copy & Close
         btn_box = QHBoxLayout()
         btn_copy = QPushButton("Copy Link")
         btn_copy.setStyleSheet("background: #2ba640; color: white; font-weight: bold; padding: 8px;")
         btn_copy.clicked.connect(lambda: self.copy_to_clipboard(url, btn_copy))
         
-        btn_close = QPushButton("Tutup (Menunggu Login...)")
-        btn_close.clicked.connect(dialog.accept) # Tutup dialog tapi worker tetap jalan background
+        btn_close = QPushButton("Batal")
+        btn_close.clicked.connect(self.auth_dialog.reject)
         
         btn_box.addWidget(btn_copy)
         btn_box.addWidget(btn_close)
         layout.addLayout(btn_box)
+        self.auth_dialog.exec()
+
+    def on_oauth_finished(self, success, msg):
+        if hasattr(self, 'auth_dialog') and self.auth_dialog.isVisible():
+            self.auth_dialog.accept()
+
+        self.btn_oauth.setEnabled(True)
         
-        # Tampilkan dialog secara non-modal (show) atau modal (exec)
-        # Kita pakai show() agar user masih bisa akses app jika perlu, 
-        # tapi exec() lebih aman agar fokus. Kita pakai exec().
-        dialog.exec()
+        if success:
+            QMessageBox.information(self, "Sukses", "Login Berhasil! Token tersimpan.")
+        else:
+            self.btn_oauth.setText("OAuth Login") # Reset text jika gagal
+            QMessageBox.critical(self, "Gagal", f"Login Gagal:\n{msg}")
+            
+        if self.current_active_id in self.channel_views:
+            self.channel_views[self.current_active_id].check_auth_status()
+            
+        # [UPDATED] Update tombol Top Bar jadi Hijau
+        self.update_top_bar_auth_status()
 
     def copy_to_clipboard(self, text, btn_sender):
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
         btn_sender.setText("Copied! ✔")
         QTimer.singleShot(2000, lambda: btn_sender.setText("Copy Link"))
-        
-        
-    def on_oauth_finished(self, success, msg):
-        self.btn_oauth.setEnabled(True)
-        self.btn_oauth.setText("OAuth Login")
-        
-        if success:
-            QMessageBox.information(self, "Sukses", "Login Berhasil! Token tersimpan.")
-        else:
-            QMessageBox.critical(self, "Gagal", f"Login Gagal:\n{msg}")
-            
-        # Refresh UI di Channel Page untuk update warna status
-        if self.current_active_id in self.channel_views:
-            self.channel_views[self.current_active_id].check_auth_status()
