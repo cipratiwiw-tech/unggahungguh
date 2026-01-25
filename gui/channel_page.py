@@ -6,15 +6,12 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSplitter, QMessageBox, QTextEdit, QApplication, QMenu
 )
 from PySide6.QtCore import Qt, QTimer, QMimeData, Signal, QEvent
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QAction, QCursor
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QAction
 from gui.custom_widgets import ScheduleWidget 
 from core.auth_manager import AuthManager
 from core.workers import UploadWorker
 
-# =============================================================================
-# KOMPONEN KECIL (HELPER WIDGETS)
-# =============================================================================
-
+# ... [BAGIAN STAT CARD & HELPER LAIN TETAP SAMA SEPERTI SEBELUMNYA] ...
 class StatCard(QFrame):
     """Kartu Statistik Compact"""
     def __init__(self, title, value, color_hex):
@@ -45,40 +42,19 @@ class RecentVideosTable(QTableWidget):
     def __init__(self, channel_seed):
         super().__init__(0, 3) 
         self.channel_seed = channel_seed
-        
         self.setHorizontalHeaderLabels(["VIDEO TERBARU", "VIEWS", "STATUS"])
         self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        
         self.setColumnWidth(1, 60)
         self.setColumnWidth(2, 70)
-        
         self.verticalHeader().setVisible(False)
         self.setFocusPolicy(Qt.NoFocus)
         self.setSelectionMode(QTableWidget.NoSelection)
-        
         self.setStyleSheet("""
-            QTableWidget {
-                background-color: #2f2f2f;
-                border: 1px solid #3f3f3f;
-                border-radius: 6px;
-            }
-            QHeaderView::section {
-                background-color: #181818;
-                color: #888;
-                padding: 4px;
-                border: none;
-                font-weight: bold;
-                font-size: 10px;
-                border-bottom: 1px solid #3f3f3f;
-            }
-            QTableWidget::item {
-                padding: 4px;
-                border-bottom: 1px solid #3f3f3f;
-                color: #ddd;
-                font-size: 11px;
-            }
+            QTableWidget { background-color: #2f2f2f; border: 1px solid #3f3f3f; border-radius: 6px; }
+            QHeaderView::section { background-color: #181818; color: #888; padding: 4px; border: none; font-weight: bold; font-size: 10px; border-bottom: 1px solid #3f3f3f; }
+            QTableWidget::item { padding: 4px; border-bottom: 1px solid #3f3f3f; color: #ddd; font-size: 11px; }
         """)
         self.generate_mock_data()
 
@@ -86,7 +62,6 @@ class RecentVideosTable(QTableWidget):
         rng = random.Random(self.channel_seed)
         topics = ["Gameplay Part", "Review Gadget", "Tutorial", "Vlog", "News"]
         statuses = [("Aktif", "#2ba640"), ("Pending", "#ffaa00"), ("Block", "#cc0000")]
-        
         for i in range(5): 
             title = f"{rng.choice(topics)} #{rng.randint(1, 99)}"
             views = f"{rng.randint(1, 999)}K"
@@ -102,105 +77,60 @@ class RecentVideosTable(QTableWidget):
         item_status.setForeground(QColor(status_color))
         self.setItem(row, 2, item_status)
 
-# =============================================================================
-# ROW UPLOAD COMPLEX (Seksi Utama)
-# =============================================================================
-
 class FixedHeightTextEdit(QTextEdit):
-    """TextEdit dengan tinggi fix, menolak drop file, dan tanpa menu klik kanan default"""
     def __init__(self, placeholder=""):
         super().__init__()
         self.setPlaceholderText(placeholder)
         self.setAcceptDrops(False)
-        
-        # [UPDATED] Matikan context menu default (Undo, Redo, Paste, dll)
-        # Ini akan memaksa event klik kanan diteruskan ke parent (UploadRow)
         self.setContextMenuPolicy(Qt.NoContextMenu)
-        
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setFrameShape(QFrame.NoFrame)
         self.setStyleSheet("""
-            QTextEdit {
-                background: transparent;
-                border: none;
-                color: #ddd;
-                font-family: 'Segoe UI', sans-serif;
-                font-size: 12px;
-                padding: 4px;
-            }
-            QTextEdit:focus {
-                background-color: #1e1e1e;
-                color: white;
-            }
+            QTextEdit { background: transparent; border: none; color: #ddd; font-family: 'Segoe UI', sans-serif; font-size: 12px; padding: 4px; }
+            QTextEdit:focus { background-color: #1e1e1e; color: white; }
         """)
 
 class UploadRow(QFrame):
-    # Signals
-    clicked = Signal(object, bool) # self, is_ctrl_pressed
-    deleted = Signal(object)       # self 
-
+    clicked = Signal(object, bool)
+    deleted = Signal(object)
     def __init__(self, parent_layout):
         super().__init__()
         self.parent_layout = parent_layout 
         self.video_path = None
         self.thumb_path = None
         self.is_selected = False
-        
         self.setFixedHeight(120)
-        
-        # Custom Context Menu (Klik Kanan di Row)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
-        
         self.default_style = """
-            UploadRow {
-                background-color: #212121;
-                border-bottom: 1px solid #2a2a2a; 
-                border-left: 3px solid transparent;
-            }
+            UploadRow { background-color: #212121; border-bottom: 1px solid #2a2a2a; border-left: 3px solid transparent; }
         """
         self.selected_style = """
-            UploadRow {
-                background-color: #2a2a2a;
-                border-bottom: 1px solid #2a2a2a; 
-                border-left: 3px solid #cc0000;
-            }
+            UploadRow { background-color: #2a2a2a; border-bottom: 1px solid #2a2a2a; border-left: 3px solid #cc0000; }
         """
         self.setStyleSheet(self.default_style)
-        
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.setAlignment(Qt.AlignTop) 
-
-        # Event Filter
         self.installEventFilter(self)
 
         def create_cell(widget, width=0, stretch=0, border_right=True):
             cell = QFrame()
             border = "border-right: 1px solid #2a2a2a;" if border_right else "border: none;"
             cell.setStyleSheet(f"QFrame {{ background: transparent; {border} }}")
-            
             c_layout = QVBoxLayout(cell)
             c_layout.setContentsMargins(5, 5, 5, 5) 
             c_layout.addWidget(widget)
-            
             if width > 0: cell.setFixedWidth(width)
             layout.addWidget(cell, stretch)
             return cell
 
-        # 1. THUMBNAIL
         self.btn_thumb = QPushButton("Thumb")
         self.btn_thumb.setFixedSize(60, 36)
         self.btn_thumb.setCursor(Qt.PointingHandCursor)
-        self.btn_thumb.setStyleSheet("""
-            QPushButton { 
-                border: 1px dashed #444; background: #1a1a1a; color: #666; font-size: 9px; border-radius: 4px;
-            }
-            QPushButton:hover { border-color: #888; color: white; }
-        """)
+        self.btn_thumb.setStyleSheet("QPushButton { border: 1px dashed #444; background: #1a1a1a; color: #666; font-size: 9px; border-radius: 4px; } QPushButton:hover { border-color: #888; color: white; }")
         self.btn_thumb.clicked.connect(self.select_thumb)
-        
         thumb_wrapper = QFrame()
         tw_layout = QVBoxLayout(thumb_wrapper)
         tw_layout.setContentsMargins(0, 10, 0, 0)
@@ -208,58 +138,32 @@ class UploadRow(QFrame):
         tw_layout.addWidget(self.btn_thumb)
         create_cell(thumb_wrapper, width=80)
 
-        # 2. JUDUL
         self.inp_title = FixedHeightTextEdit("Judul video...")
         self.inp_title.installEventFilter(self)
         create_cell(self.inp_title, stretch=3)
-
-        # 3. DESKRIPSI
         self.inp_desc = FixedHeightTextEdit("Deskripsi...")
         self.inp_desc.installEventFilter(self) 
         create_cell(self.inp_desc, stretch=3)
-
-        # 4. TAGS
         self.inp_tags = FixedHeightTextEdit("Tags...")
         self.inp_tags.installEventFilter(self) 
         create_cell(self.inp_tags, stretch=2)
-
-        # 5. JADWAL
         self.schedule = ScheduleWidget()
         create_cell(self.schedule, width=130)
 
-    # --- KLIK KANAN MENU (Row Level) ---
     def show_context_menu(self, pos):
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2f2f2f;
-                color: white;
-                border: 1px solid #444;
-            }
-            QMenu::item {
-                padding: 6px 20px;
-                font-size: 12px;
-            }
-            QMenu::item:selected {
-                background-color: #cc0000;
-            }
-        """)
-        
+        menu.setStyleSheet("QMenu { background-color: #2f2f2f; color: white; border: 1px solid #444; } QMenu::item { padding: 6px 20px; font-size: 12px; } QMenu::item:selected { background-color: #cc0000; }")
         action_del = QAction("🗑 Hapus Video", self)
         action_del.triggered.connect(self.delete_me)
         menu.addAction(action_del)
-        
         menu.exec(self.mapToGlobal(pos))
 
-    # --- EVENTS ---
     def eventFilter(self, obj, event):
         if event.type() == QEvent.MouseButtonPress:
             if event.button() == Qt.LeftButton:
                 modifiers = QApplication.keyboardModifiers()
                 is_ctrl = modifiers == Qt.ControlModifier
                 self.clicked.emit(self, is_ctrl)
-            # Klik kanan pada text edit sekarang akan diabaikan oleh text edit 
-            # (karena NoContextMenu) dan bubble up ke UploadRow -> show_context_menu
         return super().eventFilter(obj, event)
 
     def mousePressEvent(self, event):
@@ -307,20 +211,13 @@ class UploadRow(QFrame):
         self.parent_layout.removeWidget(self)
         self.deleteLater()
 
-# =============================================================================
-# DROP AREA
-# =============================================================================
-
 class VideoDropArea(QScrollArea):
     def __init__(self, page_instance):
         super().__init__()
         self.page = page_instance
         self.setWidgetResizable(True)
         self.setAcceptDrops(True)
-        self.setStyleSheet("""
-            QScrollArea { background: #121212; border: none; }
-            QWidget#DropContent { background: transparent; }
-        """)
+        self.setStyleSheet("QScrollArea { background: #121212; border: none; } QWidget#DropContent { background: transparent; }")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -341,10 +238,6 @@ class VideoDropArea(QScrollArea):
     def mousePressEvent(self, event):
         self.page.deselect_all()
         super().mousePressEvent(event)
-
-# =============================================================================
-# HALAMAN UTAMA CHANNEL
-# =============================================================================
 
 class ChannelPage(QWidget):
     def __init__(self, category, channel_name):
@@ -385,8 +278,24 @@ class ChannelPage(QWidget):
         self.channel_name = new_name
         self.check_auth_status()
 
+    # [UPDATED] Check status dan update indikator UI
     def check_auth_status(self):
-        AuthManager.check_status(self.category, self.channel_name)
+        status_text, status_color = AuthManager.check_status(self.category, self.channel_name)
+        
+        # Update indikator di UI (Stat Card "AUTH STATUS")
+        if hasattr(self, 'auth_stat_card'):
+            # Kita akses label di dalam StatCard secara manual (sedikit hacky tapi cepat)
+            labels = self.auth_stat_card.findChildren(QLabel)
+            if len(labels) >= 2:
+                labels[1].setText(status_text)
+                self.auth_stat_card.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: #2f2f2f;
+                        border-radius: 6px;
+                        border-left: 3px solid {status_color};
+                        padding: 8px;
+                    }}
+                """)
 
     def create_stats_widget(self):
         container = QWidget()
@@ -399,15 +308,19 @@ class ChannelPage(QWidget):
         
         subs = f"{self.rng.randint(1, 999)}.{self.rng.randint(1,9)}K"
         views = f"{self.rng.randint(1, 50)}.{self.rng.randint(1,9)}M"
-        rev = f"IDR {self.rng.randint(10, 500)}jt"
-
+        
         stats_content = QWidget()
         grid = QHBoxLayout(stats_content)
         grid.setContentsMargins(0,0,0,0)
         grid.setSpacing(5)
+        
         grid.addWidget(StatCard("SUBS", subs, "#cc0000"))
         grid.addWidget(StatCard("VIEWS", views, "#2ba640"))
-        grid.addWidget(StatCard("EST. REV", rev, "#ffaa00"))
+        
+        # [NEW] Ganti "EST REV" dengan "AUTH STATUS" agar lebih fungsional
+        self.auth_stat_card = StatCard("AUTH STATUS", "Checking...", "#777")
+        grid.addWidget(self.auth_stat_card)
+
         l.addWidget(stats_content)
         l.addStretch()
         return container
@@ -426,18 +339,11 @@ class ChannelPage(QWidget):
 
     def create_upload_widget(self):
         container = QFrame()
-        container.setStyleSheet("""
-            QFrame {
-                background-color: #212121;
-                border: 1px solid #333;
-                border-radius: 6px;
-            }
-        """)
+        container.setStyleSheet("QFrame { background-color: #212121; border: 1px solid #333; border-radius: 6px; }")
         l = QVBoxLayout(container)
         l.setContentsMargins(0, 0, 0, 0)
         l.setSpacing(0)
 
-        # --- HEADER ---
         header = QFrame()
         header.setFixedHeight(40)
         header.setStyleSheet("background-color: #2a2a2a; border-bottom: 1px solid #333; border-top-left-radius: 6px; border-top-right-radius: 6px;")
@@ -447,16 +353,12 @@ class ChannelPage(QWidget):
         lbl_title = QLabel("WORKSPACE UPLOAD")
         lbl_title.setStyleSheet("font-weight: bold; color: #ccc; font-size: 12px;")
         hl.addWidget(lbl_title)
-        
         hl.addStretch()
-        
         lbl_info = QLabel("Drag & Drop Video Files Here | Click to Select | Right Click to Delete")
         lbl_info.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         hl.addWidget(lbl_info)
-        
         l.addWidget(header)
 
-        # --- COLUMN HEADERS ---
         col_header = QFrame()
         col_header.setFixedHeight(25)
         col_header.setStyleSheet("background-color: #1a1a1a; border-bottom: 1px solid #333;")
@@ -475,23 +377,18 @@ class ChannelPage(QWidget):
             lbl.setStyleSheet(f"color: #666; font-weight: bold; font-size: 9px; {border}")
             if widths[i] > 0: lbl.setFixedWidth(widths[i])
             chl.addWidget(lbl, stretch=stretches[i])
-            
         l.addWidget(col_header)
 
-        # --- SCROLL AREA (DROP ZONE) ---
         self.scroll = VideoDropArea(self)
-        
         content_widget = QWidget()
         content_widget.setObjectName("DropContent")
         self.rows_layout = QVBoxLayout(content_widget)
         self.rows_layout.setSpacing(0)
         self.rows_layout.setContentsMargins(0,0,0,0)
         self.rows_layout.setAlignment(Qt.AlignTop)
-            
         self.scroll.setWidget(content_widget)
         l.addWidget(self.scroll)
 
-        # --- FOOTER ACTIONS ---
         footer = QFrame()
         footer.setFixedHeight(50)
         footer.setStyleSheet("background-color: #2a2a2a; border-top: 1px solid #333; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;")
@@ -504,16 +401,10 @@ class ChannelPage(QWidget):
         self.btn_import.clicked.connect(self.browse_videos)
         fl.addWidget(self.btn_import)
 
-        # Tombol Hapus Terpilih
         self.btn_del_selected = QPushButton("Hapus Terpilih")
         self.btn_del_selected.setFixedWidth(120)
         self.btn_del_selected.setCursor(Qt.PointingHandCursor)
-        self.btn_del_selected.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #777; border: 1px solid #444; border-radius: 4px;
-            }
-            QPushButton:hover { color: #ff5555; border-color: #ff5555; background: rgba(255,85,85,0.1); }
-        """)
+        self.btn_del_selected.setStyleSheet("QPushButton { background: transparent; color: #777; border: 1px solid #444; border-radius: 4px; } QPushButton:hover { color: #ff5555; border-color: #ff5555; background: rgba(255,85,85,0.1); }")
         self.btn_del_selected.clicked.connect(self.delete_selected_rows)
         self.btn_del_selected.setVisible(False) 
         fl.addWidget(self.btn_del_selected)
@@ -527,13 +418,10 @@ class ChannelPage(QWidget):
         fl.addWidget(self.btn_action)
 
         l.addWidget(footer)
-
         return container
 
     def browse_videos(self):
-        files, _ = QFileDialog.getOpenFileNames(
-            self, "Pilih Video", "", "Video Files (*.mp4 *.mkv *.avi *.mov *.flv *.webm)"
-        )
+        files, _ = QFileDialog.getOpenFileNames(self, "Pilih Video", "", "Video Files (*.mp4 *.mkv *.avi *.mov *.flv *.webm)")
         for f in files:
             self.add_upload_row(f)
 
@@ -550,7 +438,6 @@ class ChannelPage(QWidget):
             self.selected_rows.remove(row_instance)
         self.update_delete_button()
 
-    # --- SELECTION LOGIC ---
     def handle_row_click(self, row_instance, is_ctrl_pressed):
         if is_ctrl_pressed:
             if row_instance in self.selected_rows:
@@ -563,7 +450,6 @@ class ChannelPage(QWidget):
             self.deselect_all()
             row_instance.set_selected(True)
             self.selected_rows = [row_instance]
-
         self.update_delete_button()
 
     def deselect_all(self):
@@ -582,20 +468,13 @@ class ChannelPage(QWidget):
 
     def delete_selected_rows(self):
         if not self.selected_rows: return
-        
-        reply = QMessageBox.question(
-            self, "Konfirmasi", 
-            f"Hapus {len(self.selected_rows)} item terpilih?", 
-            QMessageBox.Yes | QMessageBox.No
-        )
-        
+        reply = QMessageBox.question(self, "Konfirmasi", f"Hapus {len(self.selected_rows)} item terpilih?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             for row in self.selected_rows[:]: 
                 row.delete_me()
             self.selected_rows = []
             self.update_delete_button()
 
-    # --- UPLOAD LOGIC ---
     def start_upload_queue(self):
         self.upload_queue = []
         cnt = self.rows_layout.count()
@@ -607,11 +486,9 @@ class ChannelPage(QWidget):
                     data = widget.get_data()
                     if data:
                         self.upload_queue.append(data)
-
         if not self.upload_queue:
             QMessageBox.warning(self, "Antrean Kosong", "Tidak ada video valid untuk diupload.")
             return
-
         self.btn_action.setEnabled(False)
         self.btn_action.setStyleSheet("background-color: #555; color: #aaa; border: none;")
         self.process_next_in_queue()
@@ -620,11 +497,9 @@ class ChannelPage(QWidget):
         if not self.upload_queue:
             self.finish_upload_session()
             return
-
         current_data = self.upload_queue.pop(0)
         self.current_processing_title = current_data['title']
         self.btn_action.setText(f"UPLOADING: {self.current_processing_title[:15]}...")
-
         self.worker = UploadWorker(self.category, self.channel_name, current_data)
         self.worker.progress_signal.connect(self.update_progress_ui)
         self.worker.status_signal.connect(self.update_status_ui)
@@ -634,8 +509,7 @@ class ChannelPage(QWidget):
     def update_progress_ui(self, percent):
         self.btn_action.setText(f"UPLOADING {percent}% - {self.current_processing_title[:10]}...")
 
-    def update_status_ui(self, status_text):
-        pass 
+    def update_status_ui(self, status_text): pass 
 
     def on_upload_finished(self, success, msg):
         if success:

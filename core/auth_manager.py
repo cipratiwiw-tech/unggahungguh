@@ -1,4 +1,5 @@
 import os
+import socket
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -12,7 +13,6 @@ SCOPES = [
 class AuthManager:
     @staticmethod
     def get_paths(category, channel_name):
-        # UPDATED: Includes category in path
         base = os.path.join("channels", category, channel_name)
         return {
             "secret": os.path.join(base, "client_secret.json"),
@@ -48,6 +48,7 @@ class AuthManager:
 
 class OAuthWorker(QThread):
     finished = Signal(bool, str)
+    auth_url_signal = Signal(str) # Signal untuk mengirim URL ke GUI
 
     def __init__(self, category, channel_name):
         super().__init__()
@@ -65,7 +66,31 @@ class OAuthWorker(QThread):
             flow = InstalledAppFlow.from_client_secrets_file(
                 paths["secret"], SCOPES
             )
-            creds = flow.run_local_server(port=0)
+
+            # [FIX] 1. Cari port yang kosong secara manual
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(('localhost', 0))
+            port = sock.getsockname()[1]
+            sock.close()
+
+            # [FIX] 2. Set Redirect URI DULUAN sebelum generate URL
+            # Ini penting agar parameter redirect_uri masuk ke link
+            redirect_uri = f'http://localhost:{port}/'
+            flow.redirect_uri = redirect_uri
+
+            # [FIX] 3. Generate URL yang sudah valid (mengandung port)
+            auth_url, _ = flow.authorization_url(prompt='consent')
+            
+            # Kirim URL valid ke GUI
+            self.auth_url_signal.emit(auth_url)
+            
+            # [FIX] 4. Jalankan server TEPAT di port yang sudah kita tentukan tadi
+            # authorization_prompt_message="" agar tidak double print di terminal
+            creds = flow.run_local_server(
+                port=port, 
+                open_browser=False, 
+                authorization_prompt_message=""
+            )
             
             with open(paths["token"], "w") as token:
                 token.write(creds.to_json())
@@ -73,4 +98,5 @@ class OAuthWorker(QThread):
             self.finished.emit(True, "Authorization Successful!")
             
         except Exception as e:
+            # Jika user cancel atau error lain
             self.finished.emit(False, str(e))
