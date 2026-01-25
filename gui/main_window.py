@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(content_col)
 
         # Set Initial Sizes (Sidebar 290px, Content sisa)
-        self.splitter.setSizes([290, 990])
+        self.splitter.setSizes([200, 990])
         self.splitter.setCollapsible(0, False) # Sidebar tidak bisa di-collapse total
 
         main_layout.addWidget(self.splitter)

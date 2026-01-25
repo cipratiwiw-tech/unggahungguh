@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QPushButton, QWidgetAction, QCalendarWidget, QMenu, QAbstractItemView
 )
 from PySide6.QtCore import Qt, QDate, Signal, QRect
+from PySide6.QtGui import QTextCharFormat, QColor, QFont
 
 class AutoResizingTextEdit(QTextEdit):
     """
@@ -37,7 +38,7 @@ class AutoResizingTextEdit(QTextEdit):
             }
         """)
         
-        self.min_height = 50 # Sedikit lebih tinggi agar lega
+        self.min_height = 50 
         self.setMinimumHeight(self.min_height)
         self.document().contentsChanged.connect(self.adjust_height)
 
@@ -59,7 +60,7 @@ class DateSelectorButton(QPushButton):
         self.setText(self.current_date.toString("yyyy-MM-dd"))
         self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setFixedHeight(30) # Tinggi fix biar rapi
+        self.setFixedHeight(30)
         
         self.setStyleSheet("""
             QPushButton {
@@ -89,7 +90,13 @@ class DateSelectorButton(QPushButton):
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.calendar.setNavigationBarVisible(True)
         
-        # Style Kalender Dark Mode Lengkap
+        # 1. Disable tanggal sebelum hari ini
+        self.calendar.setMinimumDate(QDate.currentDate())
+        
+        # 2. Highlight Current Date
+        self.highlight_today()
+
+        # Style Kalender
         self.calendar.setStyleSheet("""
             QCalendarWidget QWidget { 
                 background-color: #2f2f2f; 
@@ -113,11 +120,16 @@ class DateSelectorButton(QPushButton):
             }
             QCalendarWidget QTableView {
                 background-color: #2f2f2f;
-                selection-background-color: #cc0000; /* Warna Merah Youtube */
+                selection-background-color: #cc0000;
                 selection-color: white;
+                outline: none;
             }
             QCalendarWidget QTableView::item:hover {
                 background-color: #444;
+            }
+            QCalendarWidget QTableView::item:disabled {
+                color: #555555;
+                background-color: #252525;
             }
         """)
         
@@ -128,6 +140,20 @@ class DateSelectorButton(QPushButton):
         self.menu.addAction(cal_action)
         
         self.clicked.connect(self.show_calendar)
+
+    def highlight_today(self):
+        """Memberi highlight warna Cyan khusus untuk hari ini"""
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor("black"))
+        fmt.setBackground(QColor("#06b6d4"))
+        
+        # [FIX] Ambil font objek dari kalender dan set ke format
+        # Ini mencegah error "Point size <= 0" karena format baru tidak punya size.
+        font = self.calendar.font()
+        font.setBold(True)
+        fmt.setFont(font)
+        
+        self.calendar.setDateTextFormat(QDate.currentDate(), fmt)
 
     def show_calendar(self):
         self.calendar.setSelectedDate(self.current_date)
@@ -146,7 +172,7 @@ class ScheduleWidget(QFrame):
         super().__init__()
         self.setStyleSheet("background: transparent; border: none;")
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
-        self.setFixedWidth(130) # Fix lebar kolom jadwal
+        self.setFixedWidth(130) 
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -160,7 +186,7 @@ class ScheduleWidget(QFrame):
         self.time_combo = QComboBox()
         self.time_combo.setCursor(Qt.PointingHandCursor)
         self.time_combo.setFixedHeight(30)
-        self.time_combo.setMaxVisibleItems(10) # Agar dropdown tidak kepanjangan
+        self.time_combo.setMaxVisibleItems(10)
         
         self.time_combo.setStyleSheet("""
             QComboBox {
