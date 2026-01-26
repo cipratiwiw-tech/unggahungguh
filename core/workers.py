@@ -20,6 +20,8 @@ class UploadWorker(QThread):
         self.channel_name = channel_name
         self.data = data 
 
+
+
     def run(self):
         try:
             self.status_signal.emit("Authenticating...")
@@ -84,7 +86,7 @@ class UploadWorker(QThread):
     def emit_progress(self, val):
         self.progress_signal.emit(val)
         
-# ... Bagian ChannelInfoWorker tetap sama, namun disertakan agar file utuh ...
+
 
 class ChannelInfoWorker(QThread):
     finished_signal = Signal(bool, dict, str) # success, data, error_msg

@@ -150,9 +150,11 @@ class DateSelectorButton(QPushButton):
         # [FIX] Ambil font objek dari kalender dan set ke format
         # Ini mencegah error "Point size <= 0" karena format baru tidak punya size.
         font = self.calendar.font()
+        if font.pointSize() <= 0:
+            font.setPointSize(10)
         font.setBold(True)
         fmt.setFont(font)
-        
+
         self.calendar.setDateTextFormat(QDate.currentDate(), fmt)
 
     def show_calendar(self):
@@ -168,6 +170,8 @@ class DateSelectorButton(QPushButton):
         return self.current_date.toString("yyyy-MM-dd")
 
 class ScheduleWidget(QFrame):
+    scheduleChanged = Signal()
+
     def __init__(self):
         super().__init__()
         self.setStyleSheet("background: transparent; border: none;")
@@ -187,6 +191,11 @@ class ScheduleWidget(QFrame):
         self.time_combo.setCursor(Qt.PointingHandCursor)
         self.time_combo.setFixedHeight(30)
         self.time_combo.setMaxVisibleItems(10)
+
+        self.date_btn.clicked.connect(lambda: self.scheduleChanged.emit())
+        self.time_combo.currentIndexChanged.connect(lambda _: self.scheduleChanged.emit())
+
+
         
         self.time_combo.setStyleSheet("""
             QComboBox {
@@ -218,11 +227,24 @@ class ScheduleWidget(QFrame):
         layout.addWidget(self.date_btn)
         layout.addWidget(self.time_combo)
 
-    def populate_times(self):
+    def populate_times(self, start_time=None):
+        """
+        start_time: datetime.time atau None
+        """
         self.time_combo.clear()
+
         for h in range(24):
             for m in [0, 15, 30, 45]:
-                self.time_combo.addItem(f"{h:02d}:{m:02d}")
+                t = f"{h:02d}:{m:02d}"
+
+                if start_time:
+                    cur_minutes = h * 60 + m
+                    min_minutes = start_time.hour * 60 + start_time.minute
+                    if cur_minutes < min_minutes:
+                        continue  # skip time sebelum anchor
+
+                self.time_combo.addItem(t)
+
 
     def get_scheduled_datetime(self):
         return {

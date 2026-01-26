@@ -8,8 +8,9 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSplitter, QMessageBox, QTextEdit, QApplication, QMenu, QDialog, QComboBox, QLineEdit, QDialogButtonBox, QFormLayout,
     QApplication
 )
-from PySide6.QtCore import Qt, QTimer, QMimeData, Signal, QEvent
+from PySide6.QtCore import Qt, QTimer, QMimeData, Signal, QEvent, QDate
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QAction
+from datetime import datetime, timedelta
 
 from gui.custom_widgets import ScheduleWidget 
 from core.auth_manager import AuthManager, OAuthWorker
@@ -132,6 +133,8 @@ class UploadRow(QFrame):
         self.setFixedHeight(120)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+            
+        
         self.default_style = """
             UploadRow { background-color: #212121; border-bottom: 1px solid #2a2a2a; border-left: 3px solid transparent; }
         """
@@ -179,6 +182,17 @@ class UploadRow(QFrame):
         create_cell(self.inp_tags, stretch=2)
         self.schedule = ScheduleWidget()
         create_cell(self.schedule, width=130)
+        
+        # Connect schedule change AFTER widget exists
+        self.schedule.scheduleChanged.connect(self._on_schedule_changed)
+
+        
+    def _on_schedule_changed(self):
+        parent = self.parent()
+        while parent and not hasattr(parent, "on_row_schedule_changed"):
+            parent = parent.parent()
+        if parent:
+            parent.on_row_schedule_changed(self)
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -799,10 +813,131 @@ class ChannelPage(QWidget):
     def add_upload_row(self, file_path=None):
         row = UploadRow(self.rows_layout)
         row.clicked.connect(self.handle_row_click)
-        row.deleted.connect(self.on_row_deleted) 
+        row.deleted.connect(self.on_row_deleted)
         self.rows_layout.addWidget(row)
+
+        # ===== SMART SCHEDULE WINDOW =====
+        anchor_dt = self.get_last_schedule_anchor()
+        if anchor_dt:
+            # Set tanggal sama
+            row.schedule.date_btn.current_date = QDate(
+                anchor_dt.year, anchor_dt.month, anchor_dt.day
+            )
+            row.schedule.date_btn.setText(
+                row.schedule.date_btn.current_date.toString("yyyy-MM-dd")
+            )
+
+            # Set time window (min = anchor time)
+            row.schedule.populate_times(start_time=anchor_dt.time())
+
+            # Default select = anchor time
+            anchor_time_str = anchor_dt.strftime("%H:%M")
+            idx = row.schedule.time_combo.findText(anchor_time_str)
+            if idx >= 0:
+                row.schedule.time_combo.setCurrentIndex(idx)
+
         if file_path:
             row.set_file_data(file_path)
+
+    def on_row_schedule_changed(self, changed_row):
+        rows = []
+        for i in range(self.rows_layout.count()):
+            w = self.rows_layout.itemAt(i).widget()
+            if isinstance(w, UploadRow):
+                rows.append(w)
+
+        if changed_row not in rows:
+            return
+
+        idx = rows.index(changed_row)
+
+        try:
+            sched = changed_row.schedule.get_scheduled_datetime()
+            anchor_dt = datetime.strptime(
+                f"{sched['date']} {sched['time']}",
+                "%Y-%m-%d %H:%M"
+            )
+        except Exception:
+            return
+
+        anchor_qdate = QDate(anchor_dt.year, anchor_dt.month, anchor_dt.day)
+
+        for next_row in rows[idx + 1:]:
+            # === 1. KUNCI MINIMUM DATE ===
+            next_row.schedule.date_btn.calendar.setMinimumDate(anchor_qdate)
+
+            # === 2. JIKA DATE LEBIH KECIL → PAKSA SAMA ===
+            if next_row.schedule.date_btn.current_date < anchor_qdate:
+                next_row.schedule.date_btn.current_date = anchor_qdate
+                next_row.schedule.date_btn.setText(
+                    anchor_qdate.toString("yyyy-MM-dd")
+                )
+
+            # === 3. KUNCI JAM (TETAP SEPERTI SEBELUMNYA) ===
+            next_row.schedule.populate_times(start_time=anchor_dt.time())
+
+            # Default jam = anchor time
+            t_str = anchor_dt.strftime("%H:%M")
+            idx_time = next_row.schedule.time_combo.findText(t_str)
+            if idx_time >= 0:
+                next_row.schedule.time_combo.setCurrentIndex(idx_time)
+
+
+
+    def get_last_schedule_anchor(self):
+        """
+        Ambil datetime schedule dari row terakhir
+        """
+        cnt = self.rows_layout.count()
+        if cnt == 0:
+            return None
+
+        last_item = self.rows_layout.itemAt(cnt - 1)
+        if not last_item:
+            return None
+
+        last_row = last_item.widget()
+        if not isinstance(last_row, UploadRow):
+            return None
+
+        sched = last_row.schedule.get_scheduled_datetime()
+        try:
+            dt = datetime.strptime(
+                f"{sched['date']} {sched['time']}",
+                "%Y-%m-%d %H:%M"
+            )
+            return dt
+        except Exception:
+            return None
+
+
+    def get_next_schedule(self):
+        """
+        Ambil jadwal dari row terakhir, lalu majukan +1 hari
+        """
+        cnt = self.rows_layout.count()
+        if cnt == 0:
+            return None
+
+        last_item = self.rows_layout.itemAt(cnt - 1)
+        if not last_item:
+            return None
+
+        last_row = last_item.widget()
+        if not isinstance(last_row, UploadRow):
+            return None
+
+        sched = last_row.schedule.get_scheduled_datetime()
+        try:
+            dt = datetime.strptime(
+                f"{sched['date']} {sched['time']}",
+                "%Y-%m-%d %H:%M"
+            )
+            dt_next = dt + timedelta(days=1)
+            return dt_next
+        except Exception:
+            return None
+
 
     def on_row_deleted(self, row_instance):
         if row_instance in self.selected_rows:
