@@ -575,6 +575,21 @@ class ChannelPage(QWidget):
             
             return
 
+        # =======================================================
+        # [BARU] SIMPAN CACHE UNTUK DASHBOARD
+        # =======================================================
+        try:
+            cache_dir = os.path.join("channels", self.category, self.channel_name)
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+                
+            with open(os.path.join(cache_dir, "stats.json"), "w") as f:
+                json.dump(data, f)
+        except Exception as e:
+            print(f"Gagal menyimpan cache stats: {e}")
+        # =======================================================
+        
+        
         # 2. JIKA SUKSES (Kode Lama)
         # Format subs (contoh: 1200 -> 1.2K)
         subs = int(data.get('subscriberCount', 0))
