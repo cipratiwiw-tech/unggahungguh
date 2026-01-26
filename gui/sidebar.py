@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QFont, QCursor
+from PySide6.QtWidgets import QWidget
 from utils import rename_channel_folder, delete_channel_folder, delete_category_folder, rename_category_folder
 
 # =============================================================================
@@ -150,7 +151,7 @@ class CategoryGroup(QFrame):
 # =============================================================================
 class Sidebar(QWidget):
     # Signals
-    selection_changed = Signal(str, str) # mode, value
+    selection_changed = Signal(str, str, QWidget) # mode, value
     add_channel_clicked = Signal()
     add_category_clicked = Signal() 
     channel_renamed = Signal(str, str, str) # category, old, new
@@ -273,7 +274,8 @@ class Sidebar(QWidget):
         if self.current_btn:
             self.current_btn.set_active(False)
             self.current_btn = None
-        self.selection_changed.emit("global", "Dashboard Portofolio")
+        # Kirim self.btn_dashboard sebagai sumber widget
+        self.selection_changed.emit("global", "Dashboard Portofolio", self.btn_dashboard)
 
     def handle_channel_click(self, btn):
         # Deselect old
@@ -285,7 +287,8 @@ class Sidebar(QWidget):
         self.current_btn.set_active(True)
         
         full_id = f"{btn.category}/{btn.channel_name}"
-        self.selection_changed.emit("channel", full_id)
+        # Kirim 'btn' sebagai sumber widget
+        self.selection_changed.emit("channel", full_id, btn)
 
     def select_channel(self, category_name, channel_name):
         """Programmatic selection"""

@@ -1,37 +1,59 @@
-from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QPoint
-from PySide6.QtWidgets import QGraphicsOpacityEffect
+from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QRect
+from PySide6.QtWidgets import QWidget, QStackedWidget
 
 class PageAnimator:
     @staticmethod
-    def animate_entry(widget):
+    def slide_in_from_left(target_widget: QWidget, stack: QStackedWidget):
         """
-        Membuat efek widget muncul dari bawah (Slide Up) + Fade In.
-        Memberikan kesan 'hidup' saat halaman dimuat.
+        Menganimasikan widget masuk dari kiri layar ke posisi normalnya di dalam stack.
         """
-        # 1. Setup Opacity Effect (Transparansi)
-        effect = QGraphicsOpacityEffect(widget)
-        widget.setGraphicsEffect(effect)
+        # 1. Persiapan Widget Target
+        # Kita harus memastikan widget ditambahkan ke stack jika belum ada
+        if stack.indexOf(target_widget) == -1:
+            stack.addWidget(target_widget)
+            
+        # Pastikan dia terlihat dan berada di tumpukan paling atas (z-order)
+        # agar menutupi widget lama saat meluncur.
+        target_widget.show()
+        target_widget.raise_()
         
-        # Animasi Opacity (0 -> 1)
-        anim_opacity = QPropertyAnimation(effect, b"opacity")
-        anim_opacity.setDuration(300) # 300ms
-        anim_opacity.setStartValue(0)
-        anim_opacity.setEndValue(1)
-        anim_opacity.setEasingCurve(QEasingCurve.OutCubic)
+        # 2. Hitung Geometri (Posisi & Ukuran)
+        # Area tujuan adalah area total dari QStackedWidget itu sendiri
+        final_rect = stack.rect()
         
-        # 2. Setup Position Animation (Slide Up sedikit)
-        # Kita butuh posisi asli widget dalam layout
-        original_pos = widget.pos()
-        start_pos = QPoint(original_pos.x(), original_pos.y() + 20) # Mulai 20px lebih bawah
+        # Area awal adalah di sebelah kiri luar area tujuan (digeser sejauh lebarnya)
+        start_rect = QRect(
+            final_rect.x() - final_rect.width(),  # X digeser ke kiri
+            final_rect.y(),                       # Y tetap
+            final_rect.width(),                   # Lebar tetap
+            final_rect.height()                   # Tinggi tetap
+        )
         
-        # Karena widget di dalam layout agak tricky dianimasikan posisinya secara absolut,
-        # kita mainkan geometry atau opacity saja sudah cukup 'mahal' rasanya.
-        # Tapi untuk aman di dalam QStackedWidget, Opacity saja sudah sangat 'clean'.
-        # Jika ingin slide, kita mainkan geometry tapi harus hati-hati dg layout.
+        # 3. Set Posisi Awal Secara Paksa
+        # Kita paksa widget berada di posisi start sebelum animasi dimulai.
+        target_widget.setGeometry(start_rect)
         
-        # KITA PAKAI OPACITY SAJA + SEDIKIT SCALING (jika mungkin)
-        # Untuk stabilitas layout, Fade In (Opacity) adalah yang paling aman dan elegan.
+        # 4. Setup Animasi Geometri
+        anim = QPropertyAnimation(target_widget, b"geometry")
+        anim.setDuration(350)  # Durasi dalam milidetik (sedikit lebih cepat agar responsif)
+        # Gunakan kurva OutQuart atau OutCubic untuk efek "meluncur cepat lalu mengerem"
+        anim.setEasingCurve(QEasingCurve.OutQuart) 
+        anim.setStartValue(start_rect)
+        anim.setEndValue(final_rect)
         
-        anim_opacity.start()
+        # 5. Cleanup setelah selesai
+        # Sangat penting: Beritahu stack widget bahwa widget ini sekarang adalah yang aktif.
+        # Ini memastikan jika jendela di-resize nanti, layoutnya tetap benar.
+        def on_finished():
+            stack.setCurrentWidget(target_widget)
+            # Jika widget punya fungsi refresh khusus (seperti ChannelPage), panggil di sini
+            if hasattr(target_widget, 'check_auth_status'):
+                target_widget.check_auth_status()
+                
+        anim.finished.connect(on_finished)
         
-        return effect # Keep reference
+        # Simpan referensi animasi pada widget agar tidak dihapus Garbage Collector
+        target_widget._slide_anim_ref = anim 
+        anim.start()
+
+    # (Fungsi animate_entry yang lama bisa dihapus jika tidak dipakai lagi di tempat lain)

@@ -6,13 +6,14 @@ from PySide6.QtWidgets import (
     QDialog, QComboBox, QLineEdit, QDialogButtonBox, QFormLayout,
     QSplitter, QSizePolicy, QApplication
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QRect
 from gui.sidebar import Sidebar
 from gui.dashboard import Dashboard
 from gui.channel_page import ChannelPage
 from gui.styles import GLOBAL_STYLESHEET
 from utils import get_channel_structure, create_new_channel, create_category 
 from core.auth_manager import AuthManager, OAuthWorker
+from gui.animations import PageAnimator
 
 class AddChannelDialog(QDialog):
     def __init__(self, categories, parent=None):
@@ -29,7 +30,7 @@ class AddChannelDialog(QDialog):
         """)
         
         layout = QFormLayout(self)
-        
+        self.cable_overlay = CableOverlay(self)
         self.combo_cat = QComboBox()
         self.combo_cat.addItems(categories)
         
@@ -143,6 +144,8 @@ class MainWindow(QMainWindow):
         self.splitter.setCollapsible(0, False)
 
         main_layout.addWidget(self.splitter)
+        
+
         self.refresh_sidebar()
 
     # [FIXED] Helper Function untuk update warna DAN interaksi tombol di Top Bar
@@ -197,40 +200,68 @@ class MainWindow(QMainWindow):
         structure = get_channel_structure()
         self.sidebar.load_channels(structure)
 
-    def navigate(self, mode, identifier):
-        self.lbl_page_title.setText(identifier)
+    def navigate(self, mode, identifier, widget_sender=None):
+        # (Parameter widget_sender sebenarnya tidak diperlukan lagi untuk animasi ini,
+        # tapi kita biarkan saja agar tidak perlu mengubah sidebar.py lagi)
+        
+        target_widget = None
         
         if mode == "global":
-            self.stack.setCurrentWidget(self.dashboard_view)
+            # --- Navigasi Dashboard (Tanpa Animasi) ---
+            if self.dashboard_view not in self.stack.children():
+                self.stack.addWidget(self.dashboard_view)
+            target_widget = self.dashboard_view
+            
+            self.lbl_page_title.setText(identifier)
+            # Langsung ganti halaman secara instan
+            self.stack.setCurrentWidget(target_widget)
             self.toggle_auth_buttons(False)
+            
         else:
-            if "/" in identifier:
+            # --- Navigasi Channel Page (DENGAN ANIMASI SLIDE) ---
+            
+            # 1. Siapkan/Buat Halaman Target
+            if identifier not in self.channel_views:
                 cat_name, chan_name = identifier.split("/", 1)
-                
-                # 1. Update variabel "Dunia" aktif SEBELUM load halaman
-                self.current_active_id = identifier 
-                self.current_active_cat = cat_name
-                self.current_active_chan = chan_name
-                
-                # 2. Cek apakah halaman channel ini sudah ada di memori?
-                if identifier not in self.channel_views:
-                    # Jika belum, buat "Dunia" baru
-                    page = ChannelPage(cat_name, chan_name)
-                    self.channel_views[identifier] = page
-                    self.stack.addWidget(page)
-                
-                # 3. Tampilkan halaman tersebut
-                current_page = self.channel_views[identifier]
-                self.stack.setCurrentWidget(current_page)
-                
-                # 4. Trigger cek status Auth & Data (Real-time)
-                # Ini memastikan saat kita kembali ke tab ini, statusnya fresh
-                current_page.check_auth_status()
-                
-                # 5. Update Tombol Top Bar (Login/Secret) agar sesuai "Dunia" ini
-                self.toggle_auth_buttons(True)
-                self.update_top_bar_auth_status()
-
+                # Berikan parent self.stack agar lifetime ter manage
+                page = ChannelPage(cat_name, chan_name, parent=self.stack) 
+                self.channel_views[identifier] = page
+                # Note: Kita addWidget di dalam animator nanti
+            
+            target_widget = self.channel_views[identifier]
+            
+            # 2. Update State & Judul
+            cat_name, chan_name = identifier.split("/", 1)
+            self.lbl_page_title.setText(f"{cat_name} > {chan_name}")
+            self.current_active_id = identifier 
+            self.current_active_cat = cat_name
+            self.current_active_chan = chan_name
+            
+            # 3. JALANKAN ANIMASI SLIDE-IN DARI KIRI
+            # Kita kirim widget target dan stack container-nya
+            PageAnimator.slide_in_from_left(target_widget, self.stack)
+            
+            # 4. Update tombol auth di topbar
+            self.toggle_auth_buttons(True)
+            self.update_top_bar_auth_status()
+       
+            # Fallback jika tidak ada animasi (misal saat startup)
+            self.stack.setCurrentWidget(target_widget)
+            target_widget.show() # Pastikan show dipanggil
+            
+    def reveal_page(self, widget):
+        # Paksa update layout sebelum muncul
+        widget.updateGeometry() 
+        
+        # Jalankan animasi entry (yang sudah diperbaiki di atas)
+        PageAnimator.animate_entry(widget)
+        
+        # Trigger refresh data khusus ChannelPage
+        if hasattr(widget, 'refresh_channel_data'):
+            # Beri jeda sedikit agar layout siap dulu
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(100, widget.refresh_channel_data)      
+            
     def toggle_auth_buttons(self, visible):
         self.btn_secret.setVisible(visible)
         self.btn_oauth.setVisible(visible)

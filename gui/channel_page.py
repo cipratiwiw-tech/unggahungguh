@@ -266,8 +266,10 @@ class VideoDropArea(QScrollArea):
         super().mousePressEvent(event)
 
 class ChannelPage(QWidget):
-    def __init__(self, category, channel_name):
-        super().__init__()
+    def __init__(self, category, channel_name, parent=None):
+        # [UBAH BARIS INI] Teruskan parent ke super class
+        super().__init__(parent) 
+        
         self.category = category
         self.channel_name = channel_name
         self.rng = random.Random(f"{category}_{channel_name}")
