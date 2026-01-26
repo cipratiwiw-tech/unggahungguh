@@ -144,7 +144,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.splitter)
         self.refresh_sidebar()
 
-    # [NEW] Helper Function untuk update warna tombol di Top Bar
+    # [FIXED] Helper Function untuk update warna DAN interaksi tombol di Top Bar
     def update_top_bar_auth_status(self):
         if not hasattr(self, 'current_active_id'): return
         
@@ -153,15 +153,43 @@ class MainWindow(QMainWindow):
         
         if "Connected" in status:
             self.btn_oauth.setText("Connected ✔")
+            
+            # 1. Matikan tombol agar tidak bisa diklik lagi
+            self.btn_oauth.setEnabled(False) 
+            
+            # 2. Update Style: Tambahkan state ':disabled' agar warnanya tetap hijau segar
+            #    (Default Qt akan membuat tombol disabled jadi abu-abu, kita override ini)
             self.btn_oauth.setStyleSheet("""
-                QPushButton { border: 1px solid #2ba640; color: white; background: #2ba640; font-weight: bold; }
-                QPushButton:hover { background: #36d150; border-color: #36d150; }
+                QPushButton { 
+                    border: 1px solid #2ba640; 
+                    color: white; 
+                    background: #2ba640; 
+                    font-weight: bold; 
+                }
+                QPushButton:disabled {
+                    background: #2ba640;
+                    color: white;
+                    border-color: #2ba640;
+                    opacity: 1; 
+                }
             """)
         else:
             self.btn_oauth.setText("OAuth Login")
+            
+            # Pastikan tombol aktif kembali jika status putus/belum connect
+            self.btn_oauth.setEnabled(True)
+            
             self.btn_oauth.setStyleSheet("""
-                QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; }
-                QPushButton:hover { background: #e60000; border-color: #ff3333; }
+                QPushButton { 
+                    border: 1px solid #cc0000; 
+                    color: white; 
+                    background: #cc0000; 
+                    font-weight: bold; 
+                }
+                QPushButton:hover { 
+                    background: #e60000; 
+                    border-color: #ff3333; 
+                }
             """)
 
     def refresh_sidebar(self):
