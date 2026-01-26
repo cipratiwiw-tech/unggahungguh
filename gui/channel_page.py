@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, QMimeData, Signal, QEvent
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QAction
+
 from gui.custom_widgets import ScheduleWidget 
 from core.auth_manager import AuthManager
 from core.workers import UploadWorker, ChannelInfoWorker
@@ -281,6 +282,11 @@ class ChannelPage(QWidget):
         self.layout.setContentsMargins(15, 15, 15, 15)
         self.layout.setSpacing(10)
 
+        # --- [BAGIAN BARU] HEADER ACTIONS (TOMBOL AUTH) ---
+        # Tombol ini sekarang ada di dalam page, jadi ikut animasi slide
+        action_bar = self.create_action_bar()
+        self.layout.addWidget(action_bar)
+        
         # 1. TOP PANEL
         top_panel = QWidget()
         top_panel.setFixedHeight(140) 
@@ -311,6 +317,7 @@ class ChannelPage(QWidget):
     def check_auth_status(self):
         status_text, status_color = AuthManager.check_status(self.category, self.channel_name)
         
+        # 1. Update Kartu Statistik Auth
         if hasattr(self, 'auth_stat_card'):
             self.auth_stat_card.update_value(status_text)
             self.auth_stat_card.setStyleSheet(f"""
@@ -322,10 +329,99 @@ class ChannelPage(QWidget):
                 }}
             """)
         
+        # 2. Update Tombol Login (Button State)
+        if "Connected" in status_text:
+            self.btn_oauth.setText("Connected ✔")
+            self.btn_oauth.setEnabled(False)
+            self.btn_oauth.setStyleSheet("""
+                QPushButton { border: 1px solid #2ba640; color: white; background: #2ba640; font-weight: bold; }
+                QPushButton:disabled { background: #2ba640; color: white; border-color: #2ba640; opacity: 1; }
+            """)
+            self.refresh_channel_data() # Trigger ambil data youtube
+        else:
+            self.btn_oauth.setText("OAuth Login")
+            self.btn_oauth.setEnabled(True)
+            self.btn_oauth.setStyleSheet("""
+                QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; }
+                QPushButton:hover { background: #e60000; border-color: #ff3333; }
+            """)
+        
         # JIKA CONNECTED, Trigger pengambilan data real
         if "Connected" in status_text:
             self.refresh_channel_data()
 
+    def action_add_secret(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Pilih client_secret.json", "", "JSON (*.json)")
+        if path:
+            try:
+                base_dir = os.path.join("channels", self.category, self.channel_name)
+                target_path = os.path.join(base_dir, "client_secret.json")
+                shutil.copy(path, target_path)
+                QMessageBox.information(self, "Sukses", "Client Secret berhasil disimpan.\nSilakan klik tombol 'OAuth Login'.")
+                self.check_auth_status()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Gagal menyimpan secret: {str(e)}")
+
+    def action_oauth(self):
+        self.btn_oauth.setEnabled(False)
+        self.btn_oauth.setText("Waiting...")
+        
+        # Jalankan worker auth khusus untuk channel ini
+        self.oauth_worker = OAuthWorker(self.category, self.channel_name)
+        self.oauth_worker.finished.connect(self.on_oauth_finished)
+        self.oauth_worker.auth_url_signal.connect(self.on_auth_url_received)
+        self.oauth_worker.start()
+
+    def on_auth_url_received(self, url):
+        self.auth_dialog = QDialog(self)
+        self.auth_dialog.setWindowTitle("Login YouTube")
+        self.auth_dialog.setMinimumWidth(500)
+        self.auth_dialog.setStyleSheet("background: #2f2f2f; color: white;")
+        
+        layout = QVBoxLayout(self.auth_dialog)
+        lbl_info = QLabel("Salin link di bawah ini dan buka di <b>Profil Browser</b> yang Anda inginkan:")
+        lbl_info.setWordWrap(True)
+        layout.addWidget(lbl_info)
+        
+        txt_url = QLineEdit(url)
+        txt_url.setReadOnly(True)
+        txt_url.setStyleSheet("padding: 8px; border: 1px solid #555; background: #181818; color: #aaa;")
+        layout.addWidget(txt_url)
+        
+        btn_box = QHBoxLayout()
+        btn_copy = QPushButton("Copy Link")
+        btn_copy.setStyleSheet("background: #2ba640; color: white; font-weight: bold; padding: 8px;")
+        
+        # Fix lambda closure dengan parameter default
+        btn_copy.clicked.connect(lambda checked=False, text=url, btn=btn_copy: self.copy_to_clipboard(text, btn))
+        
+        btn_close = QPushButton("Batal")
+        btn_close.clicked.connect(self.auth_dialog.reject)
+        
+        btn_box.addWidget(btn_copy)
+        btn_box.addWidget(btn_close)
+        layout.addLayout(btn_box)
+        self.auth_dialog.exec()
+
+    def copy_to_clipboard(self, text, btn_sender):
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        btn_sender.setText("Copied! ✔")
+        QTimer.singleShot(2000, lambda: btn_sender.setText("Copy Link"))
+
+    def on_oauth_finished(self, success, msg):
+        if hasattr(self, 'auth_dialog') and self.auth_dialog.isVisible():
+            self.auth_dialog.accept()
+
+        self.btn_oauth.setEnabled(True)
+        
+        if success:
+            QMessageBox.information(self, "Sukses", "Login Berhasil! Token tersimpan.")
+            self.check_auth_status() # Update UI jadi hijau
+        else:
+            self.btn_oauth.setText("OAuth Login")
+            QMessageBox.critical(self, "Gagal", f"Login Gagal:\n{msg}")
+                
     # [TAMBAHKAN METHOD BARU INI]
     def refresh_channel_data(self):
         # [PENGAMAN] Cek apakah worker sudah ada dan sedang berjalan
@@ -440,6 +536,38 @@ class ChannelPage(QWidget):
         l.addWidget(self.recent_table)
         return container
 
+    # --- [METHOD BARU] Membuat Bar Tombol Auth ---
+    def create_action_bar(self):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 10) # Margin bawah sedikit
+        layout.setAlignment(Qt.AlignRight) # Rata Kanan
+        layout.setSpacing(10)
+
+        # Tombol Add Secret
+        self.btn_secret = QPushButton("Add Secret")
+        self.btn_secret.setCursor(Qt.PointingHandCursor)
+        self.btn_secret.clicked.connect(self.action_add_secret)
+        self.btn_secret.setStyleSheet("""
+            QPushButton { border: 1px solid #555; color: #ccc; background: #333; padding: 6px 12px; }
+            QPushButton:hover { background: #444; border-color: #777; color: white; }
+        """)
+        
+        # Tombol OAuth Login
+        self.btn_oauth = QPushButton("OAuth Login")
+        self.btn_oauth.setCursor(Qt.PointingHandCursor)
+        self.btn_oauth.clicked.connect(self.action_oauth)
+        # Style default (Merah / Belum Login)
+        self.btn_oauth.setStyleSheet("""
+            QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; padding: 6px 12px; }
+            QPushButton:hover { background: #e60000; border-color: #ff3333; }
+        """)
+
+        layout.addWidget(self.btn_secret)
+        layout.addWidget(self.btn_oauth)
+        
+        return container
+    
     def create_upload_widget(self):
         container = QFrame()
         container.setStyleSheet("QFrame { background-color: #212121; border: 1px solid #333; border-radius: 6px; }")

@@ -12,7 +12,6 @@ from gui.dashboard import Dashboard
 from gui.channel_page import ChannelPage
 from gui.styles import GLOBAL_STYLESHEET
 from utils import get_channel_structure, create_new_channel, create_category 
-from core.auth_manager import AuthManager, OAuthWorker
 from gui.animations import PageAnimator
 
 class AddChannelDialog(QDialog):
@@ -30,7 +29,6 @@ class AddChannelDialog(QDialog):
         """)
         
         layout = QFormLayout(self)
-        self.cable_overlay = CableOverlay(self)
         self.combo_cat = QComboBox()
         self.combo_cat.addItems(categories)
         
@@ -98,38 +96,14 @@ class MainWindow(QMainWindow):
         self.lbl_page_title.setStyleSheet("font-size: 18px; font-weight: bold; border: none;")
         tb_layout.addWidget(self.lbl_page_title)
         
+        # [DIHAPUS] Bagian tombol action (Secret/OAuth) karena sudah pindah ke ChannelPage
         tb_layout.addStretch()
         
-        self.action_container = QFrame()
-        ac_layout = QHBoxLayout(self.action_container)
-        ac_layout.setContentsMargins(0, 0, 15, 0)
-        ac_layout.setSpacing(10)
-        
-        self.btn_secret = QPushButton("Add Secret")
-        self.btn_secret.setCursor(Qt.PointingHandCursor)
-        self.btn_secret.clicked.connect(self.action_add_secret)
-        self.btn_secret.setVisible(False)
-        self.btn_secret.setStyleSheet("""
-            QPushButton { border: 1px solid #555; color: #ccc; background: #333; }
-            QPushButton:hover { background: #444; border-color: #777; color: white; }
-        """)
-        ac_layout.addWidget(self.btn_secret)
-        
-        self.btn_oauth = QPushButton("OAuth Login")
-        self.btn_oauth.setCursor(Qt.PointingHandCursor)
-        self.btn_oauth.clicked.connect(self.action_oauth)
-        self.btn_oauth.setVisible(False)
-        # Default Style (Red)
-        self.btn_oauth.setStyleSheet("""
-            QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; }
-            QPushButton:hover { background: #e60000; border-color: #ff3333; }
-        """)
-        ac_layout.addWidget(self.btn_oauth)
-        
-        tb_layout.addWidget(self.action_container)
-        
         content_layout.addWidget(self.top_bar)
-
+        
+        # [TAMBAHAN PENTING] Inisialisasi variabel state
+        self.current_active_id = None 
+        
         # --- STACKED WIDGET ---
         self.stack = QStackedWidget()
         content_layout.addWidget(self.stack)
@@ -145,64 +119,27 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(self.splitter)
         
-
         self.refresh_sidebar()
 
-    # [FIXED] Helper Function untuk update warna DAN interaksi tombol di Top Bar
-    def update_top_bar_auth_status(self):
-        if not hasattr(self, 'current_active_id'): return
-        
-        # Cek status langsung dari AuthManager
-        status, _ = AuthManager.check_status(self.current_active_cat, self.current_active_chan)
-        
-        if "Connected" in status:
-            self.btn_oauth.setText("Connected ✔")
-            
-            # 1. Matikan tombol agar tidak bisa diklik lagi
-            self.btn_oauth.setEnabled(False) 
-            
-            # 2. Update Style: Tambahkan state ':disabled' agar warnanya tetap hijau segar
-            #    (Default Qt akan membuat tombol disabled jadi abu-abu, kita override ini)
-            self.btn_oauth.setStyleSheet("""
-                QPushButton { 
-                    border: 1px solid #2ba640; 
-                    color: white; 
-                    background: #2ba640; 
-                    font-weight: bold; 
-                }
-                QPushButton:disabled {
-                    background: #2ba640;
-                    color: white;
-                    border-color: #2ba640;
-                    opacity: 1; 
-                }
-            """)
-        else:
-            self.btn_oauth.setText("OAuth Login")
-            
-            # Pastikan tombol aktif kembali jika status putus/belum connect
-            self.btn_oauth.setEnabled(True)
-            
-            self.btn_oauth.setStyleSheet("""
-                QPushButton { 
-                    border: 1px solid #cc0000; 
-                    color: white; 
-                    background: #cc0000; 
-                    font-weight: bold; 
-                }
-                QPushButton:hover { 
-                    background: #e60000; 
-                    border-color: #ff3333; 
-                }
-            """)
+    # [DIHAPUS] def update_top_bar_auth_status() -> Sudah pindah logic-nya ke ChannelPage
 
     def refresh_sidebar(self):
         structure = get_channel_structure()
         self.sidebar.load_channels(structure)
 
     def navigate(self, mode, identifier, widget_sender=None):
-        # (Parameter widget_sender sebenarnya tidak diperlukan lagi untuk animasi ini,
-        # tapi kita biarkan saja agar tidak perlu mengubah sidebar.py lagi)
+        """
+        Menangani perpindahan halaman.
+        Sekarang dilengkapi logika anti-redundansi:
+        Jika klik halaman yang sama, animasi tidak akan jalan.
+        """
+        
+        # [LOGIKA BARU] Cek apakah user mengklik halaman yang sedang aktif
+        if self.current_active_id == identifier:
+            return # Hentikan proses, jangan lakukan apa-apa.
+        
+        # Update ID halaman aktif sekarang
+        self.current_active_id = identifier
         
         target_widget = None
         
@@ -213,9 +150,9 @@ class MainWindow(QMainWindow):
             target_widget = self.dashboard_view
             
             self.lbl_page_title.setText(identifier)
-            # Langsung ganti halaman secara instan
+            
+            # Dashboard tidak perlu animasi slide, cukup tampil instan
             self.stack.setCurrentWidget(target_widget)
-            self.toggle_auth_buttons(False)
             
         else:
             # --- Navigasi Channel Page (DENGAN ANIMASI SLIDE) ---
@@ -223,49 +160,28 @@ class MainWindow(QMainWindow):
             # 1. Siapkan/Buat Halaman Target
             if identifier not in self.channel_views:
                 cat_name, chan_name = identifier.split("/", 1)
-                # Berikan parent self.stack agar lifetime ter manage
+                # Berikan parent self.stack agar lifetime ter-manage
                 page = ChannelPage(cat_name, chan_name, parent=self.stack) 
                 self.channel_views[identifier] = page
-                # Note: Kita addWidget di dalam animator nanti
             
             target_widget = self.channel_views[identifier]
             
-            # 2. Update State & Judul
+            # 2. Update Judul
             cat_name, chan_name = identifier.split("/", 1)
             self.lbl_page_title.setText(f"{cat_name} > {chan_name}")
-            self.current_active_id = identifier 
+            
+            # Update variable pelengkap (untuk keperluan rename/auth)
             self.current_active_cat = cat_name
             self.current_active_chan = chan_name
             
-            # 3. JALANKAN ANIMASI SLIDE-IN DARI KIRI
-            # Kita kirim widget target dan stack container-nya
+            # 3. JALANKAN ANIMASI SLIDE-IN
+            # Hanya berjalan karena ID baru != ID lama (sudah dicek di atas)
             PageAnimator.slide_in_from_left(target_widget, self.stack)
             
-            # 4. Update tombol auth di topbar
-            self.toggle_auth_buttons(True)
-            self.update_top_bar_auth_status()
-       
-            # Fallback jika tidak ada animasi (misal saat startup)
-            self.stack.setCurrentWidget(target_widget)
-            target_widget.show() # Pastikan show dipanggil
-            
-    def reveal_page(self, widget):
-        # Paksa update layout sebelum muncul
-        widget.updateGeometry() 
-        
-        # Jalankan animasi entry (yang sudah diperbaiki di atas)
-        PageAnimator.animate_entry(widget)
-        
-        # Trigger refresh data khusus ChannelPage
-        if hasattr(widget, 'refresh_channel_data'):
-            # Beri jeda sedikit agar layout siap dulu
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(100, widget.refresh_channel_data)      
-            
-    def toggle_auth_buttons(self, visible):
-        self.btn_secret.setVisible(visible)
-        self.btn_oauth.setVisible(visible)
-        self.action_container.setVisible(visible)
+            # 4. Pastikan ditampilkan (fallback jika animasi gagal)
+            target_widget.show()
+
+    # [DIHAPUS] def toggle_auth_buttons(self, visible)
 
     def add_category_flow(self):
         from PySide6.QtWidgets import QInputDialog
@@ -312,103 +228,17 @@ class MainWindow(QMainWindow):
             
         if self.lbl_page_title.text() == old_id:
             self.lbl_page_title.setText(new_id)
-            self.current_active_id = new_id
-            self.current_active_chan = new_name
+
     def handle_category_renamed(self, old_name, new_name):
-        """
-        Saat kategori di-rename, struktur folder berubah total.
-        Kita harus reset view ke Dashboard untuk mencegah error path not found.
-        """
         self.refresh_sidebar()
         self.navigate("global", "Dashboard Portofolio")
-        self.channel_views = {} # Reset cache halaman karena path lama sudah mati
+        self.channel_views = {}
         QMessageBox.information(self, "Sukses", f"Kategori berhasil diubah: {new_name}")
-
 
     def handle_channel_deleted(self, channel_name):
         self.refresh_sidebar()
         self.navigate("global", "Dashboard Portofolio")
         self.channel_views = {}
 
-    def action_add_secret(self):
-        if not hasattr(self, 'current_active_id'): return
-        path, _ = QFileDialog.getOpenFileName(self, "Pilih client_secret.json", "", "JSON (*.json)")
-        if path:
-            try:
-                base_dir = os.path.join("channels", self.current_active_cat, self.current_active_chan)
-                target_path = os.path.join(base_dir, "client_secret.json")
-                shutil.copy(path, target_path)
-                QMessageBox.information(self, "Sukses", "Client Secret berhasil disimpan.\nSilakan klik tombol 'OAuth Login'.")
-                
-                if self.current_active_id in self.channel_views:
-                    self.channel_views[self.current_active_id].check_auth_status()
-                
-                # [UPDATED]
-                self.update_top_bar_auth_status()
-                    
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Gagal menyimpan secret: {str(e)}")
-
-    def action_oauth(self):
-        if not hasattr(self, 'current_active_id'): return
-        
-        self.btn_oauth.setEnabled(False)
-        self.btn_oauth.setText("Waiting...")
-        
-        self.oauth_worker = OAuthWorker(self.current_active_cat, self.current_active_chan)
-        self.oauth_worker.finished.connect(self.on_oauth_finished)
-        self.oauth_worker.auth_url_signal.connect(self.on_auth_url_received)
-        self.oauth_worker.start()
-
-    def on_auth_url_received(self, url):
-        self.auth_dialog = QDialog(self)
-        self.auth_dialog.setWindowTitle("Login YouTube")
-        self.auth_dialog.setMinimumWidth(500)
-        self.auth_dialog.setStyleSheet("background: #2f2f2f; color: white;")
-        
-        layout = QVBoxLayout(self.auth_dialog)
-        lbl_info = QLabel("Salin link di bawah ini dan buka di <b>Profil Browser</b> yang Anda inginkan:")
-        lbl_info.setWordWrap(True)
-        layout.addWidget(lbl_info)
-        
-        txt_url = QLineEdit(url)
-        txt_url.setReadOnly(True)
-        txt_url.setStyleSheet("padding: 8px; border: 1px solid #555; background: #181818; color: #aaa;")
-        layout.addWidget(txt_url)
-        
-        btn_box = QHBoxLayout()
-        btn_copy = QPushButton("Copy Link")
-        btn_copy.setStyleSheet("background: #2ba640; color: white; font-weight: bold; padding: 8px;")
-        btn_copy.clicked.connect(lambda: self.copy_to_clipboard(url, btn_copy))
-        
-        btn_close = QPushButton("Batal")
-        btn_close.clicked.connect(self.auth_dialog.reject)
-        
-        btn_box.addWidget(btn_copy)
-        btn_box.addWidget(btn_close)
-        layout.addLayout(btn_box)
-        self.auth_dialog.exec()
-
-    def on_oauth_finished(self, success, msg):
-        if hasattr(self, 'auth_dialog') and self.auth_dialog.isVisible():
-            self.auth_dialog.accept()
-
-        self.btn_oauth.setEnabled(True)
-        
-        if success:
-            QMessageBox.information(self, "Sukses", "Login Berhasil! Token tersimpan.")
-        else:
-            self.btn_oauth.setText("OAuth Login") # Reset text jika gagal
-            QMessageBox.critical(self, "Gagal", f"Login Gagal:\n{msg}")
-            
-        if self.current_active_id in self.channel_views:
-            self.channel_views[self.current_active_id].check_auth_status()
-            
-        # [UPDATED] Update tombol Top Bar jadi Hijau
-        self.update_top_bar_auth_status()
-
-    def copy_to_clipboard(self, text, btn_sender):
-        clipboard = QApplication.clipboard()
-        clipboard.setText(text)
-        btn_sender.setText("Copied! ✔")
-        QTimer.singleShot(2000, lambda: btn_sender.setText("Copy Link"))
+    # [DIHAPUS] Semua method auth (action_add_secret, action_oauth, on_auth_url_received, dll)
+    # karena sudah pindah ke ChannelPage.py
