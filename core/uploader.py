@@ -1,5 +1,6 @@
 from googleapiclient.http import MediaFileUpload
 from datetime import datetime, timezone
+import re
 
 def upload_video(
     youtube,
@@ -36,7 +37,15 @@ def upload_video(
     }
 
     if tags:
-        snippet["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+        # Hilangkan semua tanda kutip ganda
+        clean = tags.replace('"', '')
+
+        # Split berdasarkan koma ATAU spasi
+        raw_tags = re.split(r"[,\s]+", clean.strip())
+
+        # Filter tag kosong
+        snippet["tags"] = [t for t in raw_tags if t]
+
 
     # --- STATUS ---
     status = {
