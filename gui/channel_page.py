@@ -287,10 +287,6 @@ class ChannelPage(QWidget):
         self.layout.setContentsMargins(15, 15, 15, 15)
         self.layout.setSpacing(10)
 
-        # --- [BAGIAN BARU] HEADER ACTIONS (TOMBOL AUTH) ---
-        # Tombol ini sekarang ada di dalam page, jadi ikut animasi slide
-        action_bar = self.create_action_bar()
-        self.layout.addWidget(action_bar)
         
         # 1. TOP PANEL
         top_panel = QWidget()
@@ -318,11 +314,7 @@ class ChannelPage(QWidget):
         self.channel_name = new_name
         self.check_auth_status()
 
-    # [UPDATED] Check status dan update indikator UI
-    # 1. Update Method check_auth_status 
-    # (Mengatur logika Warna & Label Tombol)
     def check_auth_status(self):
-        # Ambil status auth & path file
         status_text, status_color = AuthManager.check_status(self.category, self.channel_name)
         paths = AuthManager.get_paths(self.category, self.channel_name)
         
@@ -331,48 +323,41 @@ class ChannelPage(QWidget):
 
         # --- A. LOGIKA TOMBOL SECRET ---
         if not has_secret:
-            # KONDISI: Belum ada file secret
+            # Belum ada file secret -> MERAH
             self.btn_secret.setText("Add Secret")
-            # Warna: MERAH (Background gelap kemerahan, border merah)
             self.btn_secret.setStyleSheet("""
-                QPushButton { border: 1px solid #cc0000; color: #ffcccc; background: #330000; padding: 6px 12px; }
+                QPushButton { border: 1px solid #cc0000; color: #ffcccc; background: #330000; padding: 4px 10px; font-size: 11px; border-radius: 3px; }
                 QPushButton:hover { background: #cc0000; color: white; }
             """)
         else:
-            # KONDISI: File secret sudah ada
             self.btn_secret.setText("Ganti Secret")
-            
             if is_connected:
-                # Sub-Kondisi: Sudah connect OAuth -> HIJAU
+                # Sudah ada secret & Connected -> HIJAU
                 self.btn_secret.setStyleSheet("""
-                    QPushButton { border: 1px solid #2ba640; color: white; background: #2ba640; padding: 6px 12px; }
+                    QPushButton { border: 1px solid #2ba640; color: white; background: #2ba640; padding: 4px 10px; font-size: 11px; border-radius: 3px; }
                     QPushButton:hover { background: #33cc33; }
                 """)
             else:
-                # Sub-Kondisi: Belum connect OAuth -> BIRU
+                # Sudah ada secret tapi belum Connected -> BIRU
                 self.btn_secret.setStyleSheet("""
-                    QPushButton { border: 1px solid #3b82f6; color: white; background: #1d4ed8; padding: 6px 12px; }
+                    QPushButton { border: 1px solid #3b82f6; color: white; background: #1d4ed8; padding: 4px 10px; font-size: 11px; border-radius: 3px; }
                     QPushButton:hover { background: #3b82f6; border-color: #60a5fa; }
                 """)
 
         # --- B. LOGIKA TOMBOL OAUTH ---
         if is_connected:
-            # KONDISI: Sudah Connect -> HIJAU & Disabled
             self.btn_oauth.setText("Connected ✔")
             self.btn_oauth.setEnabled(False)
             self.btn_oauth.setStyleSheet("""
-                QPushButton { border: 1px solid #2ba640; color: white; background: #2ba640; font-weight: bold; padding: 6px 12px;}
+                QPushButton { border: 1px solid #2ba640; color: white; background: #2ba640; font-weight: bold; padding: 4px 10px; font-size: 11px; border-radius: 3px;}
                 QPushButton:disabled { background: #2ba640; color: white; border-color: #2ba640; opacity: 1; }
             """)
-            
-            # Trigger refresh data youtube jika connect
             self.refresh_channel_data()
         else:
-            # KONDISI: Belum Connect (Entah secret ada atau tidak) -> MERAH
             self.btn_oauth.setText("OAuth Login")
             self.btn_oauth.setEnabled(True)
             self.btn_oauth.setStyleSheet("""
-                QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; padding: 6px 12px; }
+                QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; padding: 4px 10px; font-size: 11px; border-radius: 3px; }
                 QPushButton:hover { background: #e60000; border-color: #ff3333; }
             """)
 
@@ -384,10 +369,9 @@ class ChannelPage(QWidget):
                     background-color: #2f2f2f;
                     border-radius: 6px;
                     border-left: 3px solid {status_color};
-                    padding: 8px;
+                    padding: 5px 8px;
                 }}
             """)
-
 
     # 2. Update Method action_oauth 
     # (Menambah validasi klik jika secret belum ada)
@@ -613,20 +597,46 @@ class ChannelPage(QWidget):
         container = QWidget()
         l = QVBoxLayout(container)
         l.setContentsMargins(0, 0, 0, 0)
-        l.setSpacing(5)
-        lbl = QLabel("CHANNEL OVERVIEW")
-        lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px;")
-        l.addWidget(lbl)
+        l.setSpacing(8) 
         
-        subs = f"{self.rng.randint(1, 999)}.{self.rng.randint(1,9)}K"
-        views = f"{self.rng.randint(1, 50)}.{self.rng.randint(1,9)}M"
+        # --- HEADER ROW (HANYA TOMBOL) ---
+        header_row = QWidget()
+        hl = QHBoxLayout(header_row)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.setSpacing(10)
         
+        # [HAPUS] Label "CHANNEL OVERVIEW" dihapus agar lebih bersih
+        
+        hl.addStretch() # Spacer agar tombol tetap di kanan
+        
+        # Tombol Add Secret
+        self.btn_secret = QPushButton("Add Secret")
+        self.btn_secret.setCursor(Qt.PointingHandCursor)
+        self.btn_secret.clicked.connect(self.action_add_secret)
+        self.btn_secret.setStyleSheet("""
+            QPushButton { border: 1px solid #444; color: #aaa; background: #2a2a2a; padding: 4px 10px; font-size: 11px; border-radius: 3px; }
+            QPushButton:hover { background: #333; color: white; border-color: #666; }
+        """)
+        hl.addWidget(self.btn_secret)
+        
+        # Tombol OAuth Login
+        self.btn_oauth = QPushButton("OAuth Login")
+        self.btn_oauth.setCursor(Qt.PointingHandCursor)
+        self.btn_oauth.clicked.connect(self.action_oauth)
+        self.btn_oauth.setStyleSheet("""
+            QPushButton { border: 1px solid #cc0000; color: white; background: #cc0000; font-weight: bold; padding: 4px 10px; font-size: 11px; border-radius: 3px; }
+            QPushButton:hover { background: #e60000; border-color: #ff3333; }
+        """)
+        hl.addWidget(self.btn_oauth)
+        
+        l.addWidget(header_row)
+        
+        # --- CARDS ROW ---
         stats_content = QWidget()
         grid = QHBoxLayout(stats_content)
         grid.setContentsMargins(0,0,0,0)
         grid.setSpacing(5)
         
-        # [MODIFIKASI BAGIAN INI] Simpan ke self.*
         self.stat_subs = StatCard("SUBS", "-", "#cc0000")
         self.stat_views = StatCard("TOTAL VIEWS", "-", "#2ba640")
         self.auth_stat_card = StatCard("AUTH STATUS", "Checking...", "#777")
@@ -636,18 +646,16 @@ class ChannelPage(QWidget):
         grid.addWidget(self.auth_stat_card)
 
         l.addWidget(stats_content)
-        l.addStretch()
+        # [HAPUS] l.addStretch() tidak diperlukan lagi karena kita ingin compact
         return container
 
     def create_history_widget(self):
         container = QWidget()
         l = QVBoxLayout(container)
         l.setContentsMargins(0, 0, 0, 0)
-        l.setSpacing(5)
-        lbl = QLabel("RIWAYAT TERAKHIR")
-        lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px;")
-        l.addWidget(lbl)
+        l.setSpacing(0) # Spacing 0 agar tabel benar-benar full
         
+        # [HAPUS] Bagian Header Label "RIWAYAT TERAKHIR" dihapus total
         
         self.recent_table = RecentVideosTable(self.channel_name)
         l.addWidget(self.recent_table)
