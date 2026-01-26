@@ -88,3 +88,17 @@ def delete_category_folder(category):
     path = os.path.join(BASE_CHANNELS_DIR, category)
     if os.path.exists(path):
         shutil.rmtree(path)
+        
+        # [TAMBAHKAN INI DI BAGIAN BAWAH utils.py]
+
+def rename_category_folder(old_name, new_name):
+    old_path = os.path.join(BASE_CHANNELS_DIR, old_name)
+    new_path = os.path.join(BASE_CHANNELS_DIR, new_name)
+    
+    if not os.path.exists(old_path):
+        raise FileNotFoundError("Kategori lama tidak ditemukan.")
+    if os.path.exists(new_path):
+        raise FileExistsError("Nama kategori sudah digunakan.")
+        
+    os.rename(old_path, new_path)
+    return new_path

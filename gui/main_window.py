@@ -76,6 +76,7 @@ class MainWindow(QMainWindow):
         
         self.sidebar.channel_renamed.connect(self.handle_channel_renamed)
         self.sidebar.channel_deleted.connect(self.handle_channel_deleted)
+        self.sidebar.category_renamed.connect(self.handle_category_renamed)
         
         self.splitter.addWidget(self.sidebar)
 
@@ -206,23 +207,28 @@ class MainWindow(QMainWindow):
             if "/" in identifier:
                 cat_name, chan_name = identifier.split("/", 1)
                 
-                if identifier not in self.channel_views:
-                    page = ChannelPage(cat_name, chan_name)
-                    self.channel_views[identifier] = page
-                    self.stack.addWidget(page)
-                
-                current_page = self.channel_views[identifier]
-                self.stack.setCurrentWidget(current_page)
-                
-                # Cek status di Page
-                current_page.check_auth_status()
-                
-                self.toggle_auth_buttons(True)
+                # 1. Update variabel "Dunia" aktif SEBELUM load halaman
                 self.current_active_id = identifier 
                 self.current_active_cat = cat_name
                 self.current_active_chan = chan_name
                 
-                # [UPDATED] Update juga tombol di Top Bar
+                # 2. Cek apakah halaman channel ini sudah ada di memori?
+                if identifier not in self.channel_views:
+                    # Jika belum, buat "Dunia" baru
+                    page = ChannelPage(cat_name, chan_name)
+                    self.channel_views[identifier] = page
+                    self.stack.addWidget(page)
+                
+                # 3. Tampilkan halaman tersebut
+                current_page = self.channel_views[identifier]
+                self.stack.setCurrentWidget(current_page)
+                
+                # 4. Trigger cek status Auth & Data (Real-time)
+                # Ini memastikan saat kita kembali ke tab ini, statusnya fresh
+                current_page.check_auth_status()
+                
+                # 5. Update Tombol Top Bar (Login/Secret) agar sesuai "Dunia" ini
+                self.toggle_auth_buttons(True)
                 self.update_top_bar_auth_status()
 
     def toggle_auth_buttons(self, visible):
@@ -277,6 +283,16 @@ class MainWindow(QMainWindow):
             self.lbl_page_title.setText(new_id)
             self.current_active_id = new_id
             self.current_active_chan = new_name
+    def handle_category_renamed(self, old_name, new_name):
+        """
+        Saat kategori di-rename, struktur folder berubah total.
+        Kita harus reset view ke Dashboard untuk mencegah error path not found.
+        """
+        self.refresh_sidebar()
+        self.navigate("global", "Dashboard Portofolio")
+        self.channel_views = {} # Reset cache halaman karena path lama sudah mati
+        QMessageBox.information(self, "Sukses", f"Kategori berhasil diubah: {new_name}")
+
 
     def handle_channel_deleted(self, channel_name):
         self.refresh_sidebar()

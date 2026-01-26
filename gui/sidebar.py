@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QFont, QCursor
-from utils import rename_channel_folder, delete_channel_folder, delete_category_folder
+from utils import rename_channel_folder, delete_channel_folder, delete_category_folder, rename_category_folder
 
 # =============================================================================
 # CUSTOM COMPONENT: CHANNEL BUTTON
@@ -155,6 +155,8 @@ class Sidebar(QWidget):
     add_category_clicked = Signal() 
     channel_renamed = Signal(str, str, str) # category, old, new
     channel_deleted = Signal(str)      
+    category_renamed = Signal(str, str) # old_name, new_name
+    
     
     def __init__(self):
         super().__init__()
@@ -295,10 +297,15 @@ class Sidebar(QWidget):
     # --- Context Menus ---
     def open_channel_context_menu(self, btn, pos):
         menu = QMenu()
+        # CSS Highlight Hover yang lebih tegas
         menu.setStyleSheet("""
             QMenu { background: #2f2f2f; color: white; border: 1px solid #444; } 
-            QMenu::item { padding: 5px 20px; }
-            QMenu::item:selected { background: #cc0000; }
+            QMenu::item { padding: 6px 24px; font-size: 12px; }
+            /* LOGIKA HIGHLIGHT SAAT HOVER */
+            QMenu::item:selected { 
+                background-color: #cc0000; 
+                color: white; 
+            }
         """)
         
         rn = QAction("✎ Rename Channel", self)
@@ -313,18 +320,29 @@ class Sidebar(QWidget):
 
     def open_category_context_menu(self, group, pos):
         menu = QMenu()
+        # Gunakan style yang sama persis agar konsisten
         menu.setStyleSheet("""
             QMenu { background: #2f2f2f; color: white; border: 1px solid #444; } 
-            QMenu::item { padding: 5px 20px; }
-            QMenu::item:selected { background: #cc0000; }
+            QMenu::item { padding: 6px 24px; font-size: 12px; }
+            /* LOGIKA HIGHLIGHT SAAT HOVER */
+            QMenu::item:selected { 
+                background-color: #cc0000; 
+                color: white; 
+            }
         """)
+        
+        # [MENU BARU] Rename Category
+        rn = QAction("✎ Rename Category", self)
+        rn.triggered.connect(lambda: self.handle_rename_category(group))
+        menu.addAction(rn)
         
         dl = QAction("🗑 Delete Category (Recursive)", self)
         dl.triggered.connect(lambda: self.handle_delete_category(group))
         menu.addAction(dl)
         
         menu.exec(group.header.mapToGlobal(pos))
-
+        
+        
     # --- Action Handlers ---
     def handle_rename(self, btn):
         new_name, ok = QInputDialog.getText(self, "Rename", "New Name:", text=btn.channel_name)
@@ -338,7 +356,17 @@ class Sidebar(QWidget):
                 self.channel_renamed.emit(btn.category, old_name, new_name.strip())
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
-
+    def handle_rename_category(self, group):
+        old_name = group.category_name
+        new_name, ok = QInputDialog.getText(self, "Rename Category", "New Name:", text=old_name)
+        if ok and new_name.strip():
+            try:
+                rename_category_folder(old_name, new_name.strip())
+                # Emit signal agar MainWindow tahu
+                self.category_renamed.emit(old_name, new_name.strip())
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
+                
     def handle_delete(self, btn):
         res = QMessageBox.warning(self, "Confirm", f"Delete '{btn.channel_name}'?", QMessageBox.Yes|QMessageBox.No)
         if res == QMessageBox.Yes:

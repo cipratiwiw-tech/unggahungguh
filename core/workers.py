@@ -59,3 +59,102 @@ class UploadWorker(QThread):
 
     def emit_progress(self, val):
         self.progress_signal.emit(val)
+        
+# ... import yang sudah ada tetap sama ...
+
+class ChannelInfoWorker(QThread):
+    finished_signal = Signal(bool, dict, str) # success, data, error_msg
+
+    def __init__(self, category, channel_name):
+        super().__init__()
+        self.category = category
+        self.channel_name = channel_name
+
+    def run(self):
+        try:
+            # 1. Autentikasi
+            paths = AuthManager.get_paths(self.category, self.channel_name)
+            if not os.path.exists(paths["token"]):
+                self.finished_signal.emit(False, {}, "Token not found")
+                return
+
+            creds = Credentials.from_authorized_user_file(paths["token"], SCOPES)
+            
+            # Refresh token jika expired
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                with open(paths["token"], "w") as token:
+                    token.write(creds.to_json())
+            
+            youtube = get_service(creds)
+
+            # 2. Ambil Statistik Channel & ID Playlist Uploads
+            # mine=True berarti mengambil channel milik user yang sedang login
+            chan_resp = youtube.channels().list(
+                mine=True, 
+                part="statistics,contentDetails"
+            ).execute()
+            
+            if not chan_resp.get("items"):
+                self.finished_signal.emit(False, {}, "Channel data not found")
+                return
+
+            item = chan_resp["items"][0]
+            stats = item["statistics"]
+            uploads_playlist_id = item["contentDetails"]["relatedPlaylists"]["uploads"]
+
+            # 3. Ambil 5 Video Terakhir dari 'Uploads Playlist'
+            # Kita pakai playlistItems karena lebih ringan & pasti urut waktu
+            pl_resp = youtube.playlistItems().list(
+                playlistId=uploads_playlist_id,
+                part="snippet,contentDetails,status",
+                maxResults=5
+            ).execute()
+
+            video_ids = []
+            videos_list = []
+            
+            for play_item in pl_resp.get("items", []):
+                vid_id = play_item["contentDetails"]["videoId"]
+                video_ids.append(vid_id)
+                videos_list.append({
+                    "id": vid_id,
+                    "title": play_item["snippet"]["title"],
+                    "status": play_item["status"]["privacyStatus"], # private, public, unlisted
+                    "published": play_item["snippet"]["publishedAt"]
+                })
+
+            # 4. Ambil View Count untuk video-video tersebut
+            # (PlaylistItems tidak memberikan viewCount, jadi harus request lagi ke videos endpoint)
+            vid_stats_map = {}
+            if video_ids:
+                vid_resp = youtube.videos().list(
+                    id=",".join(video_ids),
+                    part="statistics"
+                ).execute()
+                for v in vid_resp.get("items", []):
+                    vid_stats_map[v["id"]] = v["statistics"].get("viewCount", "0")
+
+            # Gabungkan data views ke list video
+            for v in videos_list:
+                raw_views = int(vid_stats_map.get(v["id"], "0"))
+                # Format views (contoh: 1200 -> 1.2K)
+                if raw_views >= 1000000:
+                    v["views_fmt"] = f"{raw_views/1000000:.1f}M"
+                elif raw_views >= 1000:
+                    v["views_fmt"] = f"{raw_views/1000:.1f}K"
+                else:
+                    v["views_fmt"] = str(raw_views)
+
+            # 5. Kemas semua data
+            result_data = {
+                "subscriberCount": stats.get("subscriberCount", "0"),
+                "viewCount": stats.get("viewCount", "0"),
+                "videoCount": stats.get("videoCount", "0"),
+                "videos": videos_list
+            }
+
+            self.finished_signal.emit(True, result_data, "Success")
+
+        except Exception as e:
+            self.finished_signal.emit(False, {}, str(e))

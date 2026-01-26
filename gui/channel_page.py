@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QTimer, QMimeData, Signal, QEvent
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QAction
 from gui.custom_widgets import ScheduleWidget 
 from core.auth_manager import AuthManager
-from core.workers import UploadWorker
+from core.workers import UploadWorker, ChannelInfoWorker
 
 # ... [BAGIAN STAT CARD & HELPER LAIN TETAP SAMA SEPERTI SEBELUMNYA] ...
 class StatCard(QFrame):
@@ -36,7 +36,16 @@ class StatCard(QFrame):
         
         l.addWidget(lbl_t)
         l.addWidget(lbl_v)
-
+        
+        
+    def update_value(self, new_value):
+        # Kita cari label kedua (yang berisi value)
+        # Ingat urutan addWidget: [0]=Title, [1]=Value
+        labels = self.findChildren(QLabel)
+        if len(labels) >= 2:
+            labels[1].setText(new_value)
+            
+            
 class RecentVideosTable(QTableWidget):
     """Tabel Riwayat Video Mini"""
     def __init__(self, channel_seed):
@@ -56,17 +65,34 @@ class RecentVideosTable(QTableWidget):
             QHeaderView::section { background-color: #181818; color: #888; padding: 4px; border: none; font-weight: bold; font-size: 10px; border-bottom: 1px solid #3f3f3f; }
             QTableWidget::item { padding: 4px; border-bottom: 1px solid #3f3f3f; color: #ddd; font-size: 11px; }
         """)
-        self.generate_mock_data()
 
-    def generate_mock_data(self):
-        rng = random.Random(self.channel_seed)
-        topics = ["Gameplay Part", "Review Gadget", "Tutorial", "Vlog", "News"]
-        statuses = [("Aktif", "#2ba640"), ("Pending", "#ffaa00"), ("Block", "#cc0000")]
-        for i in range(5): 
-            title = f"{rng.choice(topics)} #{rng.randint(1, 99)}"
-            views = f"{rng.randint(1, 999)}K"
-            status, color = rng.choice(statuses)
-            self.add_mock_row(title, views, status, color)
+    def update_data(self, videos_data):
+        self.setRowCount(0) # Reset tabel
+        
+        for vid in videos_data:
+            row = self.rowCount()
+            self.insertRow(row)
+            
+            # Title
+            item_title = QTableWidgetItem(vid['title'])
+            item_title.setToolTip(vid['title'])
+            self.setItem(row, 0, item_title)
+            
+            # Views
+            self.setItem(row, 1, QTableWidgetItem(vid['views_fmt']))
+            
+            # Status
+            status_map = {
+                "public": ("Public", "#2ba640"),   # Hijau
+                "unlisted": ("Unlisted", "#ffaa00"), # Kuning
+                "private": ("Private", "#cc0000")    # Merah
+            }
+            status_text, color_hex = status_map.get(vid['status'], (vid['status'], "#777"))
+            
+            item_status = QTableWidgetItem(status_text)
+            item_status.setForeground(QColor(color_hex))
+            item_status.setTextAlignment(Qt.AlignCenter)
+            self.setItem(row, 2, item_status)
 
     def add_mock_row(self, title, views, status, status_color):
         row = self.rowCount()
@@ -247,6 +273,7 @@ class ChannelPage(QWidget):
         self.rng = random.Random(f"{category}_{channel_name}")
         self.upload_queue = [] 
         self.selected_rows = [] 
+        self.info_worker = None
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(15, 15, 15, 15)
@@ -282,20 +309,90 @@ class ChannelPage(QWidget):
     def check_auth_status(self):
         status_text, status_color = AuthManager.check_status(self.category, self.channel_name)
         
-        # Update indikator di UI (Stat Card "AUTH STATUS")
         if hasattr(self, 'auth_stat_card'):
-            # Kita akses label di dalam StatCard secara manual (sedikit hacky tapi cepat)
-            labels = self.auth_stat_card.findChildren(QLabel)
-            if len(labels) >= 2:
-                labels[1].setText(status_text)
-                self.auth_stat_card.setStyleSheet(f"""
-                    QFrame {{
-                        background-color: #2f2f2f;
-                        border-radius: 6px;
-                        border-left: 3px solid {status_color};
-                        padding: 8px;
-                    }}
-                """)
+            self.auth_stat_card.update_value(status_text)
+            self.auth_stat_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: #2f2f2f;
+                    border-radius: 6px;
+                    border-left: 3px solid {status_color};
+                    padding: 8px;
+                }}
+            """)
+        
+        # JIKA CONNECTED, Trigger pengambilan data real
+        if "Connected" in status_text:
+            self.refresh_channel_data()
+
+    # [TAMBAHKAN METHOD BARU INI]
+    def refresh_channel_data(self):
+        # [PENGAMAN] Cek apakah worker sudah ada dan sedang berjalan
+        if self.info_worker is not None and self.info_worker.isRunning():
+            print("Worker sedang berjalan, permintaan refresh diabaikan.")
+            return
+
+        # Jika aman, baru jalankan worker baru
+        self.info_worker = ChannelInfoWorker(self.category, self.channel_name)
+        self.info_worker.finished_signal.connect(self.on_channel_data_received)
+        
+        # Bersihkan referensi worker setelah selesai agar memori bersih
+        self.info_worker.finished.connect(lambda: setattr(self, 'info_worker', None))
+        
+        self.info_worker.start()
+
+    def on_channel_data_received(self, success, data, msg):
+        # 1. JIKA GAGAL / ERROR
+        if not success:
+            # Set nilai default agar UI tidak kosong melompong
+            self.stat_subs.update_value("-")
+            self.stat_views.update_value("-")
+            
+            # Deteksi Error Spesifik: API Belum Enable
+            if "accessNotConfigured" in msg or "API v3 has not been used" in msg:
+                QMessageBox.critical(
+                    self, 
+                    "YouTube API Belum Aktif", 
+                    "⚠️ Gagal Terhubung ke YouTube!\n\n"
+                    "Penyebab: YouTube Data API v3 belum diaktifkan di Google Cloud Console.\n\n"
+                    "Solusi:\n"
+                    "1. Buka Google Cloud Console.\n"
+                    "2. Cari 'YouTube Data API v3'.\n"
+                    "3. Klik tombol 'ENABLE'.\n"
+                    "4. Tunggu 1-2 menit, lalu restart aplikasi ini."
+                )
+            # Deteksi Error Spesifik: Token Expired/Invalid tapi lolos cek awal
+            elif "invalid_grant" in msg or "Token not found" in msg:
+                 QMessageBox.warning(
+                    self,
+                    "Sesi Berakhir",
+                    "Token akses Anda kadaluarsa atau tidak valid.\n"
+                    "Silakan hapus file 'token.json' manual atau login ulang."
+                )
+            # Error Umum Lainnya
+            else:
+                # Potong pesan error jika terlalu panjang agar popup muat
+                short_msg = (msg[:200] + '..') if len(msg) > 200 else msg
+                QMessageBox.warning(self, "Gagal Memuat Data", f"Terjadi kesalahan teknis:\n{short_msg}")
+            
+            return
+
+        # 2. JIKA SUKSES (Kode Lama)
+        # Format subs (contoh: 1200 -> 1.2K)
+        subs = int(data.get('subscriberCount', 0))
+        if subs >= 1000000: subs_str = f"{subs/1000000:.2f}M"
+        elif subs >= 1000: subs_str = f"{subs/1000:.1f}K"
+        else: subs_str = str(subs)
+        
+        views = int(data.get('viewCount', 0))
+        if views >= 1000000: views_str = f"{views/1000000:.1f}M"
+        elif views >= 1000: views_str = f"{views/1000:.1f}K"
+        else: views_str = str(views)
+
+        self.stat_subs.update_value(subs_str)
+        self.stat_views.update_value(views_str)
+
+        # Update Table
+        self.recent_table.update_data(data.get('videos', []))
 
     def create_stats_widget(self):
         container = QWidget()
@@ -314,11 +411,13 @@ class ChannelPage(QWidget):
         grid.setContentsMargins(0,0,0,0)
         grid.setSpacing(5)
         
-        grid.addWidget(StatCard("SUBS", subs, "#cc0000"))
-        grid.addWidget(StatCard("VIEWS", views, "#2ba640"))
-        
-        # [NEW] Ganti "EST REV" dengan "AUTH STATUS" agar lebih fungsional
+        # [MODIFIKASI BAGIAN INI] Simpan ke self.*
+        self.stat_subs = StatCard("SUBS", "-", "#cc0000")
+        self.stat_views = StatCard("TOTAL VIEWS", "-", "#2ba640")
         self.auth_stat_card = StatCard("AUTH STATUS", "Checking...", "#777")
+        
+        grid.addWidget(self.stat_subs)
+        grid.addWidget(self.stat_views)
         grid.addWidget(self.auth_stat_card)
 
         l.addWidget(stats_content)
@@ -333,8 +432,10 @@ class ChannelPage(QWidget):
         lbl = QLabel("RIWAYAT TERAKHIR")
         lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px;")
         l.addWidget(lbl)
-        table = RecentVideosTable(self.channel_name)
-        l.addWidget(table)
+        
+        
+        self.recent_table = RecentVideosTable(self.channel_name)
+        l.addWidget(self.recent_table)
         return container
 
     def create_upload_widget(self):
@@ -512,16 +613,36 @@ class ChannelPage(QWidget):
     def update_status_ui(self, status_text): pass 
 
     def on_upload_finished(self, success, msg):
+        # Logika "Silent Notification" untuk Multitasking
+        
         if success:
+            # Jika sukses, lanjut ke antrean berikutnya
+            # Kita tidak perlu popup mengganggu setiap satu video selesai
+            print(f"[{self.channel_name}] Sukses: {msg}")
             self.process_next_in_queue()
         else:
-            QMessageBox.critical(self, "Upload Gagal", f"Gagal mengupload {self.current_processing_title}:\n{msg}")
+            # Jika Error, baru kita putuskan apakah perlu Popup
+            if self.isVisible():
+                # Jika user sedang melihat halaman ini, tampilkan Popup
+                QMessageBox.critical(self, "Upload Gagal", f"Gagal mengupload {self.current_processing_title}:\n{msg}")
+            else:
+                # Jika user sedang di channel lain, jangan ganggu!
+                # Cukup ubah tombol jadi merah sebagai tanda
+                self.btn_action.setText(f"ERROR: {self.current_processing_title[:10]}...")
+                self.btn_action.setStyleSheet("background: #cc0000; color: white;")
+                
+            # Lanjut (atau stop tergantung kebijakan, di sini kita coba lanjut)
             self.process_next_in_queue()
 
     def finish_upload_session(self):
         self.btn_action.setText("SEMUA SELESAI! ✔")
         self.btn_action.setStyleSheet("background-color: #2ba640; color: white; border: none;")
-        QTimer.singleShot(2000, self.reset_button)
+        
+        # Hanya munculkan Popup "All Done" jika user sedang melihat halaman ini
+        if self.isVisible():
+            QMessageBox.information(self, "Selesai", "Semua video dalam antrean berhasil diupload!")
+            
+        QTimer.singleShot(3000, self.reset_button)
 
     def reset_button(self):
         self.btn_action.setText("MULAI UPLOAD ANTRIAN")
