@@ -9,6 +9,19 @@ from PySide6.QtWidgets import QWidget
 from utils import rename_channel_folder, delete_channel_folder, delete_category_folder, rename_category_folder
 
 # =============================================================================
+# COLOR PALETTE (Dark Muted Tints)
+# =============================================================================
+CATEGORY_COLORS = [
+    "#2d1b1b", # Dark Red Tint
+    "#1b242d", # Dark Blue Tint
+    "#1b2d20", # Dark Green Tint
+    "#2a1b2d", # Dark Purple Tint
+    "#2d261b", # Dark Orange/Brown Tint
+    "#1b2d2d", # Dark Teal Tint
+    "#252525", # Neutral Dark
+]
+
+# =============================================================================
 # CUSTOM COMPONENT: CHANNEL BUTTON
 # =============================================================================
 class ChannelBtn(QPushButton):
@@ -36,7 +49,7 @@ class ChannelBtn(QPushButton):
                 QPushButton {
                     text-align: left;
                     padding: 8px 10px 8px 20px;
-                    background-color: rgba(204, 0, 0, 0.15);
+                    background-color: rgba(204, 0, 0, 0.2); /* Red Accent Transparan */
                     color: #ff5555;
                     border: none;
                     border-left: 3px solid #cc0000;
@@ -50,13 +63,13 @@ class ChannelBtn(QPushButton):
                     text-align: left;
                     padding: 8px 10px 8px 20px;
                     background-color: transparent;
-                    color: #aaaaaa;
+                    color: #cccccc; /* Text agak terang */
                     border: none;
                     border-left: 3px solid transparent;
                     border-radius: 0px;
                 }
                 QPushButton:hover {
-                    background-color: #2f2f2f;
+                    background-color: rgba(255, 255, 255, 0.05);
                     color: white;
                 }
             """)
@@ -78,22 +91,21 @@ class ChannelBtn(QPushButton):
 class CategoryGroup(QFrame):
     """
     Visual Container for a Category.
-    Acts as a 'Card' wrapping the header and the list of channels.
     """
-    def __init__(self, category_name, channels, sidebar):
+    def __init__(self, category_name, channels, sidebar, bg_color="#1e1e1e"):
         super().__init__()
         self.category_name = category_name
         self.sidebar = sidebar
         self.is_expanded = True
         
         # --- CONTAINER STYLE ---
-        # Separated visually from background with a lighter dark tone and border
-        self.setStyleSheet("""
-            CategoryGroup {
-                background-color: #1e1e1e;
+        # Background color dinamis sesuai parameter
+        self.setStyleSheet(f"""
+            CategoryGroup {{
+                background-color: {bg_color};
                 border: 1px solid #333333;
                 border-radius: 8px;
-            }
+            }}
         """)
         
         self.layout = QVBoxLayout(self)
@@ -101,13 +113,15 @@ class CategoryGroup(QFrame):
         self.layout.setSpacing(0)
 
         # 1. HEADER (Category Name)
+        # Menggunakan background transparan hitam (rgba) agar warnanya 
+        # otomatis menjadi versi lebih gelap dari warna kartu.
         self.header = QPushButton(f"  {category_name.upper()}")
         self.header.setCursor(Qt.PointingHandCursor)
         self.header.setStyleSheet("""
             QPushButton {
                 text-align: left;
-                background-color: #252525;
-                color: #dddddd;
+                background-color: rgba(0, 0, 0, 0.3); 
+                color: #ffffff;
                 font-weight: bold;
                 font-size: 11px;
                 letter-spacing: 1px;
@@ -115,9 +129,9 @@ class CategoryGroup(QFrame):
                 border: none;
                 border-top-left-radius: 7px;
                 border-top-right-radius: 7px;
-                border-bottom: 1px solid #333;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
             }
-            QPushButton:hover { background-color: #2f2f2f; color: white; }
+            QPushButton:hover { background-color: rgba(0, 0, 0, 0.5); }
         """)
         self.header.clicked.connect(self.toggle_expand)
         self.header.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -127,6 +141,8 @@ class CategoryGroup(QFrame):
 
         # 2. CONTENT AREA (List of Channels)
         self.content_area = QWidget()
+        # Background transparan agar mengikuti warna parent (CategoryGroup)
+        self.content_area.setStyleSheet("background: transparent;")
         self.content_layout = QVBoxLayout(self.content_area)
         self.content_layout.setContentsMargins(0, 5, 0, 5)
         self.content_layout.setSpacing(2)
@@ -162,9 +178,9 @@ class Sidebar(QWidget):
     def __init__(self):
         super().__init__()
         
-        self.setMinimumWidth(220)  # Agar tidak terlalu kecil
-        self.resize(290, self.height()) # Default awal
-        self.setStyleSheet("background-color: #121212;") # Global Darker BG
+        self.setMinimumWidth(220) 
+        self.resize(290, self.height())
+        self.setStyleSheet("background-color: #121212;") 
 
         # Main Layout
         main_layout = QVBoxLayout(self)
@@ -197,7 +213,6 @@ class Sidebar(QWidget):
         main_layout.addWidget(self.btn_dashboard)
 
         # 3. Scroll Area for Categories
-        # This replaces the QTreeWidget to allow complex "Card" widgets
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setStyleSheet("""
@@ -212,7 +227,7 @@ class Sidebar(QWidget):
         # Layout for the stack of cards
         self.container_layout = QVBoxLayout(self.container)
         self.container_layout.setContentsMargins(15, 20, 15, 20)
-        self.container_layout.setSpacing(20) # 20px GAP BETWEEN CATEGORIES
+        self.container_layout.setSpacing(20) # Gap antar kategori
         self.container_layout.setAlignment(Qt.AlignTop)
         
         self.scroll.setWidget(self.container)
@@ -250,7 +265,6 @@ class Sidebar(QWidget):
         self.current_btn = None
 
     def register_channel_btn(self, btn):
-        """Called by ChannelBtn/CategoryGroup during creation"""
         self.channel_btns.append(btn)
 
     def load_channels(self, structure):
@@ -265,33 +279,31 @@ class Sidebar(QWidget):
         self.channel_btns = []
         self.current_btn = None
 
-        # Build new cards
-        for category, channels in structure.items():
-            group = CategoryGroup(category, channels, self)
+        # Build new cards with Cyclic Colors
+        for i, (category, channels) in enumerate(structure.items()):
+            # Ambil warna secara bergantian menggunakan Modulo
+            bg_color = CATEGORY_COLORS[i % len(CATEGORY_COLORS)]
+            
+            group = CategoryGroup(category, channels, self, bg_color=bg_color)
             self.container_layout.addWidget(group)
 
     def on_global_click(self):
         if self.current_btn:
             self.current_btn.set_active(False)
             self.current_btn = None
-        # Kirim self.btn_dashboard sebagai sumber widget
         self.selection_changed.emit("global", "Dashboard Portofolio", self.btn_dashboard)
 
     def handle_channel_click(self, btn):
-        # Deselect old
         if self.current_btn:
             self.current_btn.set_active(False)
         
-        # Select new
         self.current_btn = btn
         self.current_btn.set_active(True)
         
         full_id = f"{btn.category}/{btn.channel_name}"
-        # Kirim 'btn' sebagai sumber widget
         self.selection_changed.emit("channel", full_id, btn)
 
     def select_channel(self, category_name, channel_name):
-        """Programmatic selection"""
         for btn in self.channel_btns:
             if btn.category == category_name and btn.channel_name == channel_name:
                 self.handle_channel_click(btn)
@@ -300,15 +312,10 @@ class Sidebar(QWidget):
     # --- Context Menus ---
     def open_channel_context_menu(self, btn, pos):
         menu = QMenu()
-        # CSS Highlight Hover yang lebih tegas
         menu.setStyleSheet("""
             QMenu { background: #2f2f2f; color: white; border: 1px solid #444; } 
             QMenu::item { padding: 6px 24px; font-size: 12px; }
-            /* LOGIKA HIGHLIGHT SAAT HOVER */
-            QMenu::item:selected { 
-                background-color: #cc0000; 
-                color: white; 
-            }
+            QMenu::item:selected { background-color: #cc0000; color: white; }
         """)
         
         rn = QAction("✎ Rename Channel", self)
@@ -323,18 +330,12 @@ class Sidebar(QWidget):
 
     def open_category_context_menu(self, group, pos):
         menu = QMenu()
-        # Gunakan style yang sama persis agar konsisten
         menu.setStyleSheet("""
             QMenu { background: #2f2f2f; color: white; border: 1px solid #444; } 
             QMenu::item { padding: 6px 24px; font-size: 12px; }
-            /* LOGIKA HIGHLIGHT SAAT HOVER */
-            QMenu::item:selected { 
-                background-color: #cc0000; 
-                color: white; 
-            }
+            QMenu::item:selected { background-color: #cc0000; color: white; }
         """)
         
-        # [MENU BARU] Rename Category
         rn = QAction("✎ Rename Category", self)
         rn.triggered.connect(lambda: self.handle_rename_category(group))
         menu.addAction(rn)
@@ -345,7 +346,6 @@ class Sidebar(QWidget):
         
         menu.exec(group.header.mapToGlobal(pos))
         
-        
     # --- Action Handlers ---
     def handle_rename(self, btn):
         new_name, ok = QInputDialog.getText(self, "Rename", "New Name:", text=btn.channel_name)
@@ -353,19 +353,18 @@ class Sidebar(QWidget):
             try:
                 rename_channel_folder(btn.category, btn.channel_name, new_name.strip())
                 old_name = btn.channel_name
-                # Optimistic UI Update
                 btn.setText(new_name.strip())
                 btn.channel_name = new_name.strip()
                 self.channel_renamed.emit(btn.category, old_name, new_name.strip())
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
+
     def handle_rename_category(self, group):
         old_name = group.category_name
         new_name, ok = QInputDialog.getText(self, "Rename Category", "New Name:", text=old_name)
         if ok and new_name.strip():
             try:
                 rename_category_folder(old_name, new_name.strip())
-                # Emit signal agar MainWindow tahu
                 self.category_renamed.emit(old_name, new_name.strip())
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
@@ -384,7 +383,6 @@ class Sidebar(QWidget):
         if res == QMessageBox.Yes:
             try:
                 delete_category_folder(group.category_name)
-                # Signal refresh
                 self.channel_deleted.emit("CAT_DEL")
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
